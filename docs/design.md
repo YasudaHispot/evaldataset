@@ -131,7 +131,7 @@ CLI エントリポイント (`evaldataset.cli:main`) がレジストリから�
 
 **目的**: 許可言語（デフォルト `["en"]`）以外の言語が `language_threshold`（デフォルト 0.5）を超えて含まれるレコードを検出する。
 
-**実装**: `src/evaldataset/checks/text_quality.py` (P2)、`ftlangdetect` を使用
+**実装**: `src/evaldataset/checks/text_quality.py` (P2)、`fast-langdetect` を使用
 
 **受入条件**:
 
