@@ -47,30 +47,49 @@ description: "ISSUEを連続して修正します。引数でISSUE番号を指�
 ### いずれのブランチでない場合
   1. ユーザーに報告する。以降の処理は行わない。
 
-## フェーズ2: ISSUEを修正する。
+## フェーズ2: ISSUE修正 + UT（Agent Teams並列）
 
-1. ISSUEを修正する。実装方法はタスクの実行と同様、ルールは、CLAUDE.md参照。
-2. 作業が完了したことを確認する。
-3. 必要ならcommitする。
-3. PRを作る。
+Agent Teamsを使い、以下の2つのteammateを**並列**で起動する:
 
-## フェーズ3: テスト品質の確認
+- **implementer**: `src/evaldataset/` 配下の修正コードを担当
+- **test-writer**: `tests/unit/` 配下のユニットテストを担当（src参照OK）
 
-1. test-code-validatorエージェントを使用して、テストコードの品質を確認する。
-2. **モック使用ポリシーの確認（重要）:** `docs/mock-policy.md` に従い、統合テストの正常系でモックが使用されていないか確認する
-3. 問題がある場合は、ユーザーに報告して一時停止する。
-4. 必要ならcommitする。
-5. PRに記述する。
+各teammateには以下を伝える:
+- 対象ISSUEの内容
+- `docs/design.md` の参照指示
+- 担当ファイルの範囲（ファイル競合を避けるため）
 
-## フェーズ4: コードレビュー
+両teammateの完了を待ち、以下を確認する:
+1. UTが通ること（`uv run pytest tests/unit/ -v`）
+2. 必要ならcommitする
 
-1. code-reviewer エージェントを使用して、PRのコードレビューを実施する。
-一般的なコードレビューに加え、`CLAUDE.md`、`docs/`配下のドキュメントが守られているか確認する。
-2. 問題がある場合は、修正を行う。ユーザーに確認が必要な場合は一時停止する。
-3. 必要ならcommit&pushする。
-4. PRに記述する。
-5. PRをマージする。
-6. フェーズ1に戻る
+**注意**: teammateの起動が不適切な場合（軽微な修正など）はサブエージェントまたはリード自身が直接修正してもよい。
+
+## フェーズ3: IT（結合テスト）生成・実行
+
+`/spec-test` スキルを使用して、specベースの結合テストを生成・実行する:
+
+1. `docs/design.md` の受入条件（Given/When/Then）から結合テストを生成
+2. `tests/integration/` に配置
+3. ITを実行（`uv run pytest tests/integration/ -v`）
+4. 失敗時はspecに基づいて判断（spec合致→実装バグ、spec乖離→テスト修正）
+5. 必要ならcommitする
+6. PRを作る
+
+## フェーズ4: レビュー（Agent Teams並列レビュー）
+
+Agent Teamsを使い、以下の3つのteammateを**並列**で起動する:
+
+- **code-reviewer**: コード品質、DRY/KISS、設計準拠を確認
+- **ut-validator**: UTの品質・カバレッジを確認
+- **it-validator**: ITのspecトレーサビリティ、mock-policy準拠を確認
+
+全teammateの完了を待ち、結果を統合する:
+1. 問題がある場合は、修正を行う。ユーザーに確認が必要な場合は一時停止する。
+2. 必要ならcommit&pushする。
+3. PRに記述する。
+4. PRをマージする。
+5. フェーズ1に戻る
 
 ---
 

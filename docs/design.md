@@ -136,6 +136,30 @@ class MissingFieldChecker(BaseChecker):
 | MissingFieldChecker | text_fieldがNone/空の行検出 | error |
 | SchemaChecker | フィールド存在・型検証 | error/warning |
 
+##### MissingFieldChecker 受入条件
+
+- Given: textフィールドが空文字のレコードを含むデータセット
+  When: MissingFieldCheckerを実行する
+  Then: 該当レコードがIssue（severity=error）として報告される
+
+- Given: textフィールドがNoneのレコードを含むデータセット
+  When: MissingFieldCheckerを実行する
+  Then: 該当レコードがIssue（severity=error）として報告される
+
+- Given: 全レコードにtextフィールドが存在し非空のデータセット
+  When: MissingFieldCheckerを実行する
+  Then: Issueは0件で、CheckResultのissuesが空リストになる
+
+##### SchemaChecker 受入条件
+
+- Given: text_fieldで指定されたフィールドが存在しないデータセット
+  When: SchemaCheckerを実行する
+  Then: Issue（severity=error）として報告される
+
+- Given: 全必須フィールドが正しい型で存在するデータセット
+  When: SchemaCheckerを実行する
+  Then: Issueは0件になる
+
 #### テキスト品質 (text_quality.py)
 
 | チェッカー | 説明 | Severity |
@@ -147,12 +171,96 @@ class MissingFieldChecker(BaseChecker):
 | UrlEmailDensityChecker | URL/メール密度が閾値超過 | warning |
 | BoilerplateChecker | 定型文パターン（copyright, cookie等） | info |
 
+##### ShortTextChecker 受入条件
+
+- Given: min_length=50のとき、10文字のテキストを含むデータセット
+  When: ShortTextCheckerを実行する
+  Then: 該当レコードがIssue（severity=warning）として報告される
+
+- Given: max_length=100000のとき、200000文字のテキストを含むデータセット
+  When: ShortTextCheckerを実行する
+  Then: 該当レコードがIssue（severity=warning）として報告される
+
+- Given: min_lengthとmax_lengthの範囲内のテキストのみのデータセット
+  When: ShortTextCheckerを実行する
+  Then: Issueは0件になる
+
+##### HtmlResidueChecker 受入条件
+
+- Given: `<div>content</div>` のようなHTMLタグを含むテキストのデータセット
+  When: HtmlResidueCheckerを実行する
+  Then: 該当レコードがIssue（severity=warning）として報告される
+
+- Given: HTMLタグを含まないプレーンテキストのみのデータセット
+  When: HtmlResidueCheckerを実行する
+  Then: Issueは0件になる
+
+##### ControlCharChecker 受入条件
+
+- Given: 制御文字（\x00, \x01等）を含むテキストのデータセット
+  When: ControlCharCheckerを実行する
+  Then: 該当レコードがIssue（severity=warning）として報告される
+
+- Given: 制御文字を含まない正常なテキストのみのデータセット
+  When: ControlCharCheckerを実行する
+  Then: Issueは0件になる
+
+##### WhitespaceChecker 受入条件
+
+- Given: 連続する改行（5個以上）を含むテキストのデータセット
+  When: WhitespaceCheckerを実行する
+  Then: 該当レコードがIssue（severity=warning）として報告される
+
+- Given: 適切な空白・改行のみのデータセット
+  When: WhitespaceCheckerを実行する
+  Then: Issueは0件になる
+
+##### UrlEmailDensityChecker 受入条件
+
+- Given: max_url_density=0.1のとき、テキストの20%がURLで構成されるデータセット
+  When: UrlEmailDensityCheckerを実行する
+  Then: 該当レコードがIssue（severity=warning）として報告される
+
+- Given: URL密度が閾値以下のデータセット
+  When: UrlEmailDensityCheckerを実行する
+  Then: Issueは0件になる
+
+##### BoilerplateChecker 受入条件
+
+- Given: "Copyright 2024 All rights reserved" を含むテキストのデータセット
+  When: BoilerplateCheckerを実行する
+  Then: 該当レコードがIssue（severity=info）として報告される
+
+- Given: 定型文パターンを含まないデータセット
+  When: BoilerplateCheckerを実行する
+  Then: Issueは0件になる
+
 #### 重複検出 (duplicates.py)
 
 | チェッカー | 説明 | Severity |
 |-----------|------|----------|
 | ExactDuplicateChecker | SHA-256ハッシュ完全一致 | warning |
 | NearDuplicateChecker | MinHash LSH（Jaccard >= 0.8） | warning |
+
+##### ExactDuplicateChecker 受入条件
+
+- Given: 同一テキストのレコードが2件以上存在するデータセット
+  When: ExactDuplicateCheckerを実行する
+  Then: 重複レコードがIssue（severity=warning）として報告され、row_indicesに重複行が含まれる
+
+- Given: 全レコードが一意のテキストを持つデータセット
+  When: ExactDuplicateCheckerを実行する
+  Then: Issueは0件になる
+
+##### NearDuplicateChecker 受入条件
+
+- Given: Jaccard類似度0.9の近似重複ペアを含むデータセット（minhash_threshold=0.8）
+  When: NearDuplicateCheckerを実行する
+  Then: 近似重複ペアがIssue（severity=warning）として報告される
+
+- Given: 全レコードのJaccard類似度がminhash_threshold未満のデータセット
+  When: NearDuplicateCheckerを実行する
+  Then: Issueは0件になる
 
 #### コンテンツ品質 (content.py)
 
@@ -161,6 +269,40 @@ class MissingFieldChecker(BaseChecker):
 | LanguageChecker | 言語検出（ftlangdetect） | warning |
 | PiiChecker | PII正規表現検出（email, 電話, SSN等） | error |
 | TokenLengthChecker | トークン長分布・外れ値検出 | info |
+
+##### LanguageChecker 受入条件
+
+- Given: languages=["en"]のとき、日本語テキストのみのデータセット
+  When: LanguageCheckerを実行する
+  Then: 該当レコードがIssue（severity=warning）として報告される
+
+- Given: languages=["en"]のとき、英語テキストのみのデータセット
+  When: LanguageCheckerを実行する
+  Then: Issueは0件になる
+
+##### PiiChecker 受入条件
+
+- Given: メールアドレス "user@example.com" を含むテキストのデータセット
+  When: PiiCheckerを実行する
+  Then: 該当レコードがIssue（severity=error）として報告される
+
+- Given: 電話番号パターンを含むテキストのデータセット
+  When: PiiCheckerを実行する
+  Then: 該当レコードがIssue（severity=error）として報告される
+
+- Given: PII情報を含まないテキストのみのデータセット
+  When: PiiCheckerを実行する
+  Then: Issueは0件になる
+
+##### TokenLengthChecker 受入条件
+
+- Given: max_token_length=8192のとき、トークン長10000のテキストを含むデータセット
+  When: TokenLengthCheckerを実行する
+  Then: 該当レコードがIssue（severity=info）として報告される
+
+- Given: 全レコードのトークン長がmax_token_length以下のデータセット
+  When: TokenLengthCheckerを実行する
+  Then: Issueは0件になる
 
 ## Fixer設計
 
