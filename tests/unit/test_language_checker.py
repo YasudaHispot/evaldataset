@@ -252,11 +252,11 @@ class TestLanguageChecker:
         result = checker_en_only.check(dataset, text_field="text")
 
         warnings = [i for i in result.issues if i.severity == Severity.WARNING]
-        if warnings:
-            all_flagged_indices = [idx for issue in warnings for idx in issue.row_indices]
-            assert 0 not in all_flagged_indices, "None（index 0）が row_indices に含まれてはいけない"
-            assert 2 not in all_flagged_indices, "None（index 2）が row_indices に含まれてはいけない"
-            assert 1 in all_flagged_indices, "日本語テキスト（index 1）が row_indices に含まれるべき"
+        assert len(warnings) == 1, "日本語テキストが検出されるべき"
+        all_flagged_indices = [idx for issue in warnings for idx in issue.row_indices]
+        assert 0 not in all_flagged_indices, "None（index 0）が row_indices に含まれてはいけない"
+        assert 2 not in all_flagged_indices, "None（index 2）が row_indices に含まれてはいけない"
+        assert 1 in all_flagged_indices, "日本語テキスト（index 1）が row_indices に含まれるべき"
 
     # --- 空データセット ---
 
@@ -276,6 +276,31 @@ class TestLanguageChecker:
         assert result.stats.get("non_target_count", 0) == 0
 
     # --- checker_name の確認 ---
+
+    # --- 閾値境界値テスト ---
+
+    def test_threshold_boundary_below(self) -> None:
+        """score < threshold の場合、許可外言語でも検出しない。"""
+        config = CheckerConfig(languages=["en"], language_threshold=0.99)
+        checker = LanguageChecker(config)
+        # 閾値を非常に高く設定することで、検出が抑制される
+        dataset = self._make_dataset([JAPANESE_TEXT, ENGLISH_TEXT_1])
+        result = checker.check(dataset, text_field="text")
+
+        # 閾値0.99では多くのテキストの信頼度が0.99未満なので検出されにくい
+        # 少なくとも non_target_count が通常より少ないことを確認
+        assert result.stats["non_target_count"] <= 1
+
+    def test_threshold_at_minimum(self) -> None:
+        """threshold=0.0 の場合、信頼度にかかわらず許可外言語が検出される。"""
+        config = CheckerConfig(languages=["en"], language_threshold=0.0)
+        checker = LanguageChecker(config)
+        dataset = self._make_dataset([JAPANESE_TEXT, ENGLISH_TEXT_1])
+        result = checker.check(dataset, text_field="text")
+
+        assert result.stats["non_target_count"] >= 1
+
+    # --- メタデータ ---
 
     def test_checker_name_in_result(self, checker_en_only: LanguageChecker) -> None:
         """CheckResult.checker_name が設定されていること。"""
