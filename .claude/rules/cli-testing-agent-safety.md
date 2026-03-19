@@ -1,5 +1,19 @@
 ---
-paths: "**/*.{test,spec}.{ts,tsx,js,jsx,py,go,rs}"
+paths:
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.tsx"
+  - "**/*.test.js"
+  - "**/*.spec.js"
+  - "**/*.test.jsx"
+  - "**/*.spec.jsx"
+  - "**/*.test.py"
+  - "**/*.spec.py"
+  - "**/*.test.go"
+  - "**/*.spec.go"
+  - "**/*.test.rs"
+  - "**/*.spec.rs"
 ---
 
 # CLIエージェント安全性テストルール
