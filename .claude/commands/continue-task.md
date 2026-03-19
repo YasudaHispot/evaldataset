@@ -14,8 +14,23 @@ description: "全タスクを連続して実装します"
 
 **オーケストレータ（この会話）の役割:**
 - ループ制御、git操作、Agent起動、テスト実行結果の確認のみ
-- ソースコードを直接読まない・書かない（全てAgentに委譲）
 - コンテキストを軽量に保ち、ループ指示が圧縮されにくくする
+
+### オーケストレータの禁止事項（厳守）
+
+以下に違反すると、コンテキストが膨張してループ指示が圧縮され、途中停止の原因になる。
+
+- **`src/` 配下のファイルを Read/Glob/Grep で読んではいけない**
+- **`tests/` 配下のファイルを Read/Glob/Grep で読んではいけない**
+- **`docs/` 配下のファイルの中身を Read で読んではいけない**（AC番号の存在確認のための `grep -c` のみ許可）
+- **ソースコードの構造・関数・クラス情報を自分で調べてAgentに渡してはいけない**
+- **Agentプロンプトにコードの内容を含めてはいけない** — Issue本文と参照指示だけ渡す
+
+### オーケストレータが使ってよい操作
+
+- `Bash`: git操作、`gh` 操作、`uv run pytest`、`grep -c`（AC存在確認）
+- `Agent`: ワーカーAgent起動（テンプレートに従う）
+- `Skill`: `/create-spec` 等のスキル呼び出し
 
 **ワーカーAgent の役割:**
 - Phase 2: implementer + test-writer（実装 + UT）
@@ -52,35 +67,68 @@ description: "全タスクを連続して実装します"
 
 ## フェーズ1.5: spec確認
 
-対象タスクに対応する受入条件（Given/When/Then）が `docs/design.md` に存在するか確認する。
+`grep -c "AC-{対応番号}" docs/design.md` でACの存在を確認する（**ファイルの中身は読まない**）。
 
-- **存在しない場合**: `/create-spec` スキルを使用して受入条件を作成する
-- **存在する場合**: スキップ
+- **0件の場合**: `/create-spec` スキルを使用して受入条件を作成する
+- **1件以上の場合**: スキップ
 
 ## フェーズ2: 実装 + UT（Agent Teams並列）
 
+`gh issue view {n} --json title,body` でIssue本文を取得し、以下のテンプレートでAgentを起動する。
+
 **implementer** と **test-writer** を並列で起動する。
 
-各teammateには以下を伝える:
-- 対象タスクの内容（GitHub Issueの本文を取得して渡す）
-- `docs/design.md` の受入条件
-- 担当ファイルの範囲
+### implementer プロンプトテンプレート
+
+> GitHub Issue #{n} の実装を行ってください。
+>
+> ## Issue内容
+> {gh issue view の title と body をそのまま貼付}
+>
+> ## 指示
+> - CLAUDE.md を読んでプロジェクトルールを確認すること
+> - docs/design.md の該当セクションと受入条件を自分で読んで設計を理解すること
+> - 既存コードの構造を自分で調査すること（`src/evaldataset/` 配下）
+> - テストファイルは書かないこと（test-writerが担当）
+
+### test-writer プロンプトテンプレート
+
+> GitHub Issue #{n} のユニットテストを作成してください。
+>
+> ## Issue内容
+> {gh issue view の title と body をそのまま貼付}
+>
+> ## 指示
+> - CLAUDE.md を読んでプロジェクトルールを確認すること
+> - docs/design.md の該当セクションと受入条件を自分で読むこと
+> - src/ の実装コードを読んでインターフェースを理解すること（UT では src 参照OK）
+> - tests/unit/ 配下に配置すること
+> - 既存テストのパターン（tests/unit/conftest.py 等）を参考にすること
 
 両teammateの完了を待ち:
 1. `uv run pytest tests/unit/ -v` を実行してUTが通ることを確認する
 2. 必要ならcommitする
 
-**フェーズ3への引き継ぎ**: 対象タスクのAC番号を保持する（it-writerに渡すため）。
+**フェーズ3への引き継ぎ**: 対象タスクのIssue番号を保持する（it-writerに渡すため）。
 
 ## フェーズ3: IT生成・実行（Agent）
 
-**it-writer** を起動する。
+**it-writer** を以下のテンプレートで起動する。
 
-以下を伝える:
-- 対象タスクの受入条件（AC番号と Given/When/Then の内容）
-- `docs/design.md` の参照指示
-- src参照禁止・モック禁止のルール
-- 既存ITファイルのパターン参照指示（`tests/integration/` の既存ファイル）
+### it-writer プロンプトテンプレート
+
+> GitHub Issue #{n} の結合テスト（IT）を作成してください。
+>
+> ## Issue内容
+> {gh issue view の title と body をそのまま貼付}
+>
+> ## 指示
+> - docs/design.md の該当する受入条件（Given/When/Then）を自分で読むこと
+> - src/ のコードは参照禁止（specからのみ導出）
+> - 正常系でのモック禁止（docs/mock-policy.md 参照）
+> - tests/integration/ 配下に配置すること
+> - 既存ITファイルのパターンを参考にすること
+> - 各テストに Given/When/Then コメントを必須で記述すること
 
 完了を待ち:
 1. `uv run pytest tests/integration/ -v` を実行してITが通ることを確認する
@@ -88,14 +136,36 @@ description: "全タスクを連続して実装します"
 
 ## フェーズ4: レビュー（Agent Teams並列） → PR → マージ
 
-**code-reviewer**、**ut-validator**、**it-validator** を並列で起動する。
+`git diff main --name-only` で変更ファイル一覧を取得する（**ファイルの中身は読まない**）。
 
-各teammateには以下を伝える:
-- 対象タスクの内容と対象ファイル
-- `docs/design.md` の受入条件（AC番号）
+**code-reviewer**、**ut-validator**、**it-validator** を以下のテンプレートで並列起動する。
+
+### code-reviewer プロンプトテンプレート
+
+> Issue #{n} の実装をレビューしてください。
+>
+> 変更ファイル: {git diff main --name-only の出力}
+>
+> docs/design.md の受入条件と照合し、Major/Minor/Info で指摘してください。
+
+### ut-validator プロンプトテンプレート
+
+> Issue #{n} のユニットテストを検証してください。
+>
+> 変更ファイル: {git diff main --name-only の出力のうち tests/unit/ のもの}
+>
+> カバレッジ、アサーション妥当性、モック使用の適切さを確認し、Major/Minor/Info で指摘してください。
+
+### it-validator プロンプトテンプレート
+
+> Issue #{n} の結合テストを検証してください。
+>
+> 変更ファイル: {git diff main --name-only の出力のうち tests/integration/ のもの}
+>
+> specトレーサビリティ、モック禁止準拠、Given/When/Then対応を確認し、Major/Minor/Info で指摘してください。
 
 全teammateの完了を待ち、結果を統合する:
-1. Major指摘がある場合 → **fixer** を起動する。fixer には各レビューアのMajor指摘（ファイルパス、指摘内容）をテキストで渡す
+1. Major指摘がある場合 → **fixer** を起動する。fixer にはレビュー結果のMajor指摘テキストをそのまま渡す
 2. `uv run pytest tests/ -v` で全テスト通過を確認する
 3. 必要ならcommitする
 4. pushしてPR作成
