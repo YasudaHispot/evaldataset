@@ -480,3 +480,89 @@ class TestRichReporter:
         result = _make_check_result(issues=[issue])
         report = _make_report(results=[result], total_rows=1000)
         reporter.render(report)  # 例外が発生しないこと
+
+    def test_render_output_contains_checker_name(self) -> None:
+        """AC-13-03: render() の出力にチェッカー名が含まれる。"""
+        from io import StringIO
+        from rich.console import Console
+        from evaldataset.report import RichReporter
+
+        stream = StringIO()
+        console = Console(file=stream, highlight=False)
+        reporter = RichReporter(console=console)
+
+        result = _make_check_result(checker_name="my_schema_checker", issues=[])
+        report = _make_report(results=[result])
+        reporter.render(report)
+
+        stream.seek(0)
+        output = stream.read()
+        assert "my_schema_checker" in output
+
+    def test_render_output_contains_severity_info(self) -> None:
+        """AC-13-03: render() の出力にIssue数と重大度情報が含まれる。"""
+        from io import StringIO
+        from rich.console import Console
+        from evaldataset.report import RichReporter
+
+        stream = StringIO()
+        console = Console(file=stream, highlight=False)
+        reporter = RichReporter(console=console)
+
+        warning_result = _make_check_result(
+            checker_name="text_length",
+            issues=[
+                _make_issue(severity=Severity.WARNING, message="Too short"),
+            ],
+        )
+        error_result = _make_check_result(
+            checker_name="schema",
+            issues=[
+                _make_issue(severity=Severity.ERROR, checker="schema", message="Missing field"),
+            ],
+        )
+        report = _make_report(results=[warning_result, error_result])
+        reporter.render(report)
+
+        stream.seek(0)
+        output = stream.read()
+        # チェッカー名が含まれること
+        assert "text_length" in output
+        assert "schema" in output
+        # Issue情報（severity文字列）が含まれること
+        assert "WARNING" in output or "WARN" in output
+        assert "ERROR" in output or "FAIL" in output
+
+    def test_render_error_writes_to_stderr(self) -> None:
+        """AC-13-03: render_error() がエラーメッセージをstderrに出力する。"""
+        from unittest.mock import patch
+        from rich.console import Console
+        from evaldataset.report import RichReporter
+
+        reporter = RichReporter()
+        err_stream = io.StringIO()
+        mock_console = Console(file=err_stream, highlight=False)
+
+        with patch("evaldataset.report.rich_reporter.Console", return_value=mock_console):
+            reporter.render_error("Something went wrong")
+
+        err_stream.seek(0)
+        output = err_stream.read()
+        assert "Something went wrong" in output
+
+    def test_render_error_message_visible_in_output(self) -> None:
+        """render_error() の出力にエラーメッセージが含まれる。"""
+        from unittest.mock import patch
+        from rich.console import Console
+        from evaldataset.report import RichReporter
+
+        reporter = RichReporter()
+        err_stream = io.StringIO()
+        mock_console = Console(file=err_stream, highlight=False)
+
+        with patch("evaldataset.report.rich_reporter.Console", return_value=mock_console):
+            reporter.render_error("Custom error message")
+
+        err_stream.seek(0)
+        output = err_stream.read()
+        assert "Custom error message" in output

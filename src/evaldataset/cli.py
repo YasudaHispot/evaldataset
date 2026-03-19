@@ -10,6 +10,7 @@ See ``evaldataset --help`` for full option list.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 from typing import Any
@@ -194,10 +195,7 @@ def main(
     # --- Input validation: reject control characters (AC-14-06) ---
     validation_error = _validate_dataset_id(dataset_id)
     if validation_error is not None:
-        if is_json:
-            JsonReporter().render_error(validation_error)
-        else:
-            RichReporter().render_error(validation_error)
+        _emit_error(validation_error, is_json)
         raise SystemExit(EXIT_WARNING)
 
     # --- Build config (merge YAML + CLI options) ---
@@ -299,6 +297,12 @@ def _run_fix_pipeline(
 
     # Actually write the fixed dataset
     if fix_output:
+        resolved = os.path.realpath(fix_output)
+        cwd = os.path.realpath(os.getcwd())
+        if not resolved.startswith(cwd + os.sep) and resolved != cwd:
+            raise click.BadParameter(
+                f"Output path must be within current directory: {fix_output}"
+            )
         cleaned_dataset.save_to_disk(fix_output)
         if not is_json:
             from rich.console import Console

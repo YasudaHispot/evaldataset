@@ -577,15 +577,17 @@ class TestCliDryRun:
         from evaldataset.cli import main
 
         runner = CliRunner()
-        mock_dataset = _make_dataset(["<p>Hello</p>", "Normal text"])
         fix_stats = {"total_fixed": 1, "total_rows": 2}
 
-        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+        # TextCleaner.fix_dataset の戻り値をMagicMockにして save_to_disk を追跡する
+        mock_cleaned_dataset = MagicMock()
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=_make_dataset(["<p>Hello</p>", "Normal text"])), \
              patch("evaldataset.cli.get_all_checkers", return_value={}), \
              patch("evaldataset.cli.TextCleaner") as mock_cleaner_cls:
             mock_cleaner = MagicMock()
             mock_cleaner_cls.return_value = mock_cleaner
-            mock_cleaner.fix_dataset.return_value = (mock_dataset, fix_stats)
+            mock_cleaner.fix_dataset.return_value = (mock_cleaned_dataset, fix_stats)
 
             result = runner.invoke(
                 main,
@@ -594,9 +596,7 @@ class TestCliDryRun:
 
         assert result.exit_code in (0, 1, 2)
         # --dry-run なので save_to_disk は呼ばれない
-        if hasattr(mock_dataset, "save_to_disk"):
-            # モックのDatasetのsave_to_diskが呼ばれていないことを確認
-            pass
+        mock_cleaned_dataset.save_to_disk.assert_not_called()
         # TextCleaner.fix_dataset は呼ばれる（dry-run でも内部では実行する）
         mock_cleaner.fix_dataset.assert_called_once()
 
@@ -723,6 +723,62 @@ class TestCliControlCharacterRejection:
         result = runner.invoke(main, ["test\x0b/dataset"])
 
         assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# _run_checkers のベストエフォート実行テスト
+# ---------------------------------------------------------------------------
+
+
+class TestRunCheckersBestEffort:
+    """_run_checkers のベストエフォート実行（例外隔離）テスト。"""
+
+    def test_exception_in_checker_produces_error_result(self) -> None:
+        """チェッカーが例外を投げた場合、ERROR CheckResultが生成される。"""
+        from evaldataset.cli import _run_checkers
+        from evaldataset.config import CheckerConfig
+        from evaldataset.models import Severity
+
+        dataset = _make_dataset(["text"])
+        config = CheckerConfig()
+
+        failing_cls = MagicMock()
+        failing_cls.return_value.check.side_effect = RuntimeError("boom")
+
+        with patch("evaldataset.cli.get_all_checkers", return_value={"failing": failing_cls}):
+            results = _run_checkers(dataset, "text", config)
+
+        assert len(results) == 1
+        result = results[0]
+        assert result.checker_name == "failing"
+        assert len(result.issues) == 1
+        assert result.issues[0].severity == Severity.ERROR
+        assert "boom" in result.issues[0].message
+
+    def test_exception_in_one_checker_does_not_stop_others(self) -> None:
+        """チェッカーが例外を投げても残りのチェッカーが続行される。"""
+        from evaldataset.cli import _run_checkers
+        from evaldataset.config import CheckerConfig
+
+        dataset = _make_dataset(["text"])
+        config = CheckerConfig()
+
+        failing_cls = MagicMock()
+        failing_cls.return_value.check.side_effect = ValueError("fail")
+
+        ok_result = _make_check_result(checker_name="ok_checker", issues=[])
+        ok_cls = MagicMock()
+        ok_cls.return_value.check.return_value = ok_result
+
+        checkers = {"failing": failing_cls, "ok_checker": ok_cls}
+        with patch("evaldataset.cli.get_all_checkers", return_value=checkers):
+            results = _run_checkers(dataset, "text", config)
+
+        # 両方のチェッカーの結果が含まれる
+        assert len(results) == 2
+        checker_names = [r.checker_name for r in results]
+        assert "failing" in checker_names
+        assert "ok_checker" in checker_names
 
 
 # ---------------------------------------------------------------------------

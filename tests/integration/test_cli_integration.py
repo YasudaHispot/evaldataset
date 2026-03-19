@@ -314,8 +314,8 @@ class TestCliJsonOutput:
             result = runner.invoke(main, ["test/dataset", "--output", "json"])
 
         # Assert (Then)
-        assert result.exit_code in (1, 2), (
-            f"Expected exit code 1 or 2 for dataset with issues, "
+        assert result.exit_code == 1, (
+            f"Expected exit code 1 for dataset with WARNING issues only, "
             f"got {result.exit_code}. Output:\n{result.output}"
         )
 
