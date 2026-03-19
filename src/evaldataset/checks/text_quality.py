@@ -1,4 +1,4 @@
-"""Text quality checks: text length and language validation."""
+"""Text quality checks: text length, language, and HTML validation."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from fast_langdetect import detect
 from evaldataset.checks.base import BaseChecker
 from evaldataset.checks.registry import register
 from evaldataset.models import CheckResult, Issue, Severity
+from evaldataset.utils.text import count_html_tags
 
 logger = logging.getLogger(__name__)
 
@@ -125,5 +126,47 @@ class LanguageChecker(BaseChecker):
         result.stats = {
             "checked_count": checked_count,
             "non_target_count": len(non_target_indices),
+        }
+        return result
+
+
+HTML_TAG_THRESHOLD = 5
+
+
+@register
+class HTMLChecker(BaseChecker):
+    """Detect texts containing excessive HTML tags."""
+
+    name = "html"
+
+    def check(self, dataset: Dataset, text_field: str) -> CheckResult:
+        result = CheckResult(checker_name=self.name)
+        html_indices: list[int] = []
+
+        for i, row in enumerate(dataset):
+            value = row.get(text_field)
+            if value is None or not isinstance(value, str):
+                continue
+
+            tag_count = count_html_tags(value)
+            if tag_count >= HTML_TAG_THRESHOLD:
+                html_indices.append(i)
+
+        if html_indices:
+            result.issues.append(
+                Issue(
+                    checker=self.name,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Found {len(html_indices)} rows with {HTML_TAG_THRESHOLD} or "
+                        f"more HTML tags"
+                    ),
+                    row_indices=html_indices,
+                )
+            )
+
+        result.stats = {
+            "total_rows": len(dataset),
+            "html_detected_count": len(html_indices),
         }
         return result
