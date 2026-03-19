@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+import tiktoken
 from datasets import Dataset
 
 from evaldataset.checks.base import BaseChecker
@@ -68,5 +69,60 @@ class PiiChecker(BaseChecker):
             "total_rows": len(dataset),
             "pii_detected_count": len(pii_row_indices),
             **{f"pii_{pii_type}_count": count for pii_type, count in pii_type_counter.items()},
+        }
+        return result
+
+
+@register
+class TokenLengthChecker(BaseChecker):
+    """Detect rows where token count exceeds max_token_length."""
+
+    name = "token_length"
+
+    def check(self, dataset: Dataset, text_field: str) -> CheckResult:
+        result = CheckResult(checker_name=self.name)
+
+        encoding = tiktoken.get_encoding(self.config.token_encoding)
+        max_tokens = self.config.max_token_length
+
+        over_limit_indices: list[int] = []
+        over_limit_details: list[dict[str, int]] = []
+
+        for i, row in enumerate(dataset):
+            value = row.get(text_field)
+            # Skip None and non-string values
+            if value is None or not isinstance(value, str):
+                continue
+
+            token_count = len(encoding.encode(value))
+            if token_count > max_tokens:
+                over_limit_indices.append(i)
+                over_limit_details.append(
+                    {
+                        "row_index": i,
+                        "token_count": token_count,
+                    }
+                )
+
+        if over_limit_indices:
+            result.issues.append(
+                Issue(
+                    checker=self.name,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Found {len(over_limit_indices)} rows exceeding "
+                        f"max token length ({max_tokens})"
+                    ),
+                    row_indices=over_limit_indices,
+                    details={
+                        "max_token_length": max_tokens,
+                        "over_limit_rows": over_limit_details,
+                    },
+                )
+            )
+
+        result.stats = {
+            "total_rows": len(dataset),
+            "over_limit_count": len(over_limit_indices),
         }
         return result
