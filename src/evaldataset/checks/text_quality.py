@@ -6,7 +6,6 @@ from datasets import Dataset
 
 from evaldataset.checks.base import BaseChecker
 from evaldataset.checks.registry import register
-from evaldataset.config import CheckerConfig
 from evaldataset.models import CheckResult, Issue, Severity
 
 

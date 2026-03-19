@@ -37,7 +37,7 @@ class TestTextLengthCheckerIntegration:
 
         # Assert (Then)
         warning_issues = [i for i in result.issues if i.severity == Severity.WARNING]
-        assert len(warning_issues) >= 1
+        assert len(warning_issues) == 1
         all_row_indices = []
         for issue in warning_issues:
             all_row_indices.extend(issue.row_indices)
@@ -83,7 +83,7 @@ class TestTextLengthCheckerIntegration:
 
         # Assert (Then)
         warning_issues = [i for i in result.issues if i.severity == Severity.WARNING]
-        assert len(warning_issues) >= 1
+        assert len(warning_issues) == 1
         all_row_indices = []
         for issue in warning_issues:
             all_row_indices.extend(issue.row_indices)

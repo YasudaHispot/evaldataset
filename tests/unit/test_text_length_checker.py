@@ -66,7 +66,7 @@ class TestTextLengthChecker:
         result = checker.check(dataset, text_field="text")
 
         warnings = [i for i in result.issues if i.severity == Severity.WARNING]
-        assert len(warnings) >= 1
+        assert len(warnings) == 1
         short_issue = next(
             (i for i in warnings if any(idx == 1 for idx in i.row_indices)),
             None,
@@ -112,7 +112,7 @@ class TestTextLengthChecker:
         result = checker.check(dataset, text_field="text")
 
         warnings = [i for i in result.issues if i.severity == Severity.WARNING]
-        assert len(warnings) >= 1
+        assert len(warnings) == 1
 
     def test_long_text_row_index(self, checker: TextLengthChecker) -> None:
         """AC-03-03: WARNING の row_indices に長すぎるレコードのインデックスが含まれる。"""
@@ -124,7 +124,7 @@ class TestTextLengthChecker:
         result = checker.check(dataset, text_field="text")
 
         warnings = [i for i in result.issues if i.severity == Severity.WARNING]
-        assert len(warnings) >= 1
+        assert len(warnings) == 1
         long_issue = next(
             (i for i in warnings if any(idx == 1 for idx in i.row_indices)),
             None,
@@ -216,7 +216,7 @@ class TestTextLengthChecker:
         result = checker.check(dataset, text_field="text")
 
         warnings = [i for i in result.issues if i.severity == Severity.WARNING]
-        assert len(warnings) >= 1
+        assert len(warnings) == 1
         assert result.stats["too_short_count"] == 1
 
     def test_empty_dataset(self, checker: TextLengthChecker) -> None:
@@ -233,7 +233,7 @@ class TestTextLengthChecker:
         dataset = self._make_dataset(["a" * 100])
         result = checker.check(dataset, text_field="text")
 
-        assert result.checker_name != ""
+        assert result.checker_name == "text_length"
 
     def test_issue_checker_field_matches_checker_name(
         self, checker: TextLengthChecker
@@ -244,6 +244,15 @@ class TestTextLengthChecker:
 
         for issue in result.issues:
             assert issue.checker == result.checker_name
+
+    def test_none_and_non_string_skipped(self, checker: TextLengthChecker) -> None:
+        """None や非文字列の値はスキップされ、WARNING に含まれない。"""
+        dataset = Dataset.from_dict({"text": [None, "a" * 100, None]})
+        result = checker.check(dataset, text_field="text")
+
+        assert result.stats["too_short_count"] == 0
+        assert result.stats["too_long_count"] == 0
+        assert result.issues == []
 
     def test_custom_min_length(self) -> None:
         """カスタム min_length=100 の設定で 99文字が WARNING になる。"""
