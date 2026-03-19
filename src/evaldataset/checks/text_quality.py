@@ -1,4 +1,4 @@
-"""Text quality checks: text length, language, and HTML validation."""
+"""Text quality checks: text length, language, HTML, and mojibake validation."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fast_langdetect import detect
 from evaldataset.checks.base import BaseChecker
 from evaldataset.checks.registry import register
 from evaldataset.models import CheckResult, Issue, Severity
-from evaldataset.utils.text import count_html_tags
+from evaldataset.utils.text import count_html_tags, has_mojibake
 
 logger = logging.getLogger(__name__)
 
@@ -168,5 +168,47 @@ class HTMLChecker(BaseChecker):
         result.stats = {
             "total_rows": len(dataset),
             "html_detected_count": len(html_indices),
+        }
+        return result
+
+
+@register
+class MojibakeChecker(BaseChecker):
+    """Detect texts containing mojibake (garbled characters)."""
+
+    name = "mojibake"
+
+    def check(self, dataset: Dataset, text_field: str) -> CheckResult:
+        result = CheckResult(checker_name=self.name)
+        mojibake_indices: list[int] = []
+
+        for i, row in enumerate(dataset):
+            value = row.get(text_field)
+            if value is None or not isinstance(value, str):
+                continue
+
+            try:
+                if has_mojibake(value):
+                    mojibake_indices.append(i)
+            except Exception:
+                logger.debug("Mojibake detection failed for row %d, skipping", i)
+                continue
+
+        if mojibake_indices:
+            result.issues.append(
+                Issue(
+                    checker=self.name,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Found {len(mojibake_indices)} rows with suspected "
+                        f"mojibake (garbled characters)"
+                    ),
+                    row_indices=mojibake_indices,
+                )
+            )
+
+        result.stats = {
+            "total_rows": len(dataset),
+            "mojibake_count": len(mojibake_indices),
         }
         return result
