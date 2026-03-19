@@ -68,7 +68,8 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 
 ## フェーズ1.5: spec確認
 
-`grep -c "AC-{対応番号}" docs/design.md` でACの存在を確認する（ファイルの中身は読まない）。
+`grep -c "AC-{対応番号(2桁ゼロパディング)}-" docs/design.md` でACの存在を確認する（ファイルの中身は読まない）。
+例: タスク#11 → `grep -c "AC-14-" docs/design.md`（Issue番号とAC番号の対応はIssue本文に記載されている）
 
 - **0件の場合**: `/create-spec` スキルを使用して受入条件を作成する。完了後、docs/design.md の内容は確認しない（Agentが自分で読む）
 - **1件以上の場合**: スキップ
@@ -182,7 +183,7 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 
 全teammateの完了を待ち、結果を統合する:
 1. Major指摘がある場合 → **fixer** を起動する
-2. `uv run pytest tests/ --tb=line -q | tail -20` で全テスト通過を確認する
+2. `uv run pytest tests/ --tb=line -q | tail -20` で全テスト通過を確認する。テスト失敗時は**フェーズ2のテスト失敗時のフロー**に従う
 3. 必要ならcommitする
 4. pushしてPR作成
 5. PRをマージ
