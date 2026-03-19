@@ -276,6 +276,12 @@ class TestTextCleanerFixText:
         # 空白のみ → strip後は空文字列になることを期待
         assert result.strip() == ""
 
+    def test_none_input_returns_none(self):
+        """fix_text(None) は None を返す。"""
+        from evaldataset.fixer import TextCleaner
+        cleaner = TextCleaner()
+        assert cleaner.fix_text(None) is None
+
     def test_single_character_preserved(self, cleaner) -> None:
         """1文字の正常テキストが保持される。"""
         result = cleaner.fix_text("A")

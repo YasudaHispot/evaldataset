@@ -197,5 +197,4 @@ class TestTextCleanerIntegration:
         # Assert (Then)
         assert isinstance(stats, dict)
         # At least one record was fixed (the HTML one), so stats should reflect that
-        total_fixed = sum(v for v in stats.values() if isinstance(v, int))
-        assert total_fixed >= 1
+        assert stats["total_fixed"] >= 1

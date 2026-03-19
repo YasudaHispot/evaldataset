@@ -8,7 +8,7 @@ import regex
 
 # Patterns
 HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
-CONTROL_CHAR_PATTERN = regex.compile(r"[\p{Cc}&&[^\t\n\r]]")
+CONTROL_CHAR_PATTERN = regex.compile(r"[\p{Cc}&&[^\t\n\r]]", regex.V1)
 EXCESSIVE_WHITESPACE_PATTERN = re.compile(r"[ \t]{3,}")
 EXCESSIVE_NEWLINE_PATTERN = re.compile(r"\n{4,}")
 URL_PATTERN = re.compile(

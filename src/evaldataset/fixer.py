@@ -12,19 +12,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import regex
 import ftfy
 from bs4 import BeautifulSoup
 from datasets import Dataset
 
 from evaldataset.utils.text import (
+    CONTROL_CHAR_PATTERN,
     EXCESSIVE_NEWLINE_PATTERN,
     EXCESSIVE_WHITESPACE_PATTERN,
 )
-
-# Control-character pattern compiled with V1 flag so that the set-
-# intersection syntax ``[\p{Cc}&&[^\t\n\r]]`` works correctly.
-_CONTROL_CHAR_RE = regex.compile(r"[\p{Cc}&&[^\t\n\r]]", regex.V1)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +95,6 @@ class TextCleaner:
             "html_stripped": 0,
             "control_chars_removed": 0,
             "whitespace_normalized": 0,
-            "fixed_count": 0,
             "total_fixed": 0,
         }
 
@@ -136,7 +131,6 @@ class TextCleaner:
             current = after_ws
 
             if current != original:
-                stats["fixed_count"] += 1
                 stats["total_fixed"] += 1
 
             row = dict(row)
@@ -167,7 +161,7 @@ class TextCleaner:
     @staticmethod
     def _remove_control_chars(text: str) -> str:
         """Remove control characters except ``\\t``, ``\\n``, ``\\r``."""
-        return _CONTROL_CHAR_RE.sub("", text)
+        return CONTROL_CHAR_PATTERN.sub("", text)
 
     @staticmethod
     def _normalize_whitespace(text: str) -> str:
