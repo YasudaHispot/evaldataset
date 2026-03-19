@@ -7,6 +7,8 @@ paths:
   - "**/*.py"
   - "**/*.go"
   - "**/*.rs"
+  - "docs/requirements.md"
+  - "docs/design.md"
 ---
 
 # CLIスキーマ自己記述ルール

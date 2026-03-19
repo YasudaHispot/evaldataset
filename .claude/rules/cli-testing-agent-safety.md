@@ -14,6 +14,8 @@ paths:
   - "**/*.spec.go"
   - "**/*.test.rs"
   - "**/*.spec.rs"
+  - "docs/requirements.md"
+  - "docs/design.md"
 ---
 
 # CLIエージェント安全性テストルール

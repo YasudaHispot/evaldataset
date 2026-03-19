@@ -7,6 +7,8 @@ paths:
   - "**/*.py"
   - "**/*.go"
   - "**/*.rs"
+  - "docs/requirements.md"
+  - "docs/design.md"
 ---
 
 # CLI安全装置ルール

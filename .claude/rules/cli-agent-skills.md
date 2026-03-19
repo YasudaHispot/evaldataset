@@ -9,6 +9,8 @@ paths:
   - "**/*.rs"
   - "**/*.yaml"
   - "**/*.yml"
+  - "docs/requirements.md"
+  - "docs/design.md"
 ---
 
 # CLIエージェントスキルファイルルール
