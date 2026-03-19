@@ -77,10 +77,25 @@ UT（ユニットテスト）とIT（結合テスト）を分離する。
 
 ### エージェント一覧（`.claude/agents/`）
 
+#### 調査・設計チーム
+
+| エージェント | 役割 | 使用タイミング |
+|-------------|------|--------------|
+| researcher | 検証手法の調査 | `/research-design` でchallenger/spec-writerと並列 |
+| challenger | 弱点・ギャップ指摘 | `/research-design` でresearcher/spec-writerと並列 |
+| spec-writer | 受入条件（spec）作成 | `/research-design` で議論収束後に動作 |
+
+#### 実装チーム
+
 | エージェント | 役割 | 使用タイミング |
 |-------------|------|--------------|
 | implementer | コード実装 | フェーズ2でtest-writerと並列 |
 | test-writer | UT作成 | フェーズ2でimplementerと並列 |
+
+#### レビューチーム
+
+| エージェント | 役割 | 使用タイミング |
+|-------------|------|--------------|
 | code-reviewer | コードレビュー | フェーズ4でut/it-validatorと並列 |
 | ut-validator | UT品質検証 | フェーズ4でcode-reviewer/it-validatorと並列 |
 | it-validator | IT品質検証 | フェーズ4でcode-reviewer/ut-validatorと並列 |
@@ -88,6 +103,8 @@ UT（ユニットテスト）とIT（結合テスト）を分離する。
 ### ワークフロー
 
 ```
+フェーズ1: /research-design（調査・設計チーム、spec作成）
+    ↓    または /create-spec（簡易版、specのみ作成）
 フェーズ2: implementer + test-writer（並列、UT作成）
     ↓
 フェーズ3: /spec-test（IT作成・実行、src参照禁止）
