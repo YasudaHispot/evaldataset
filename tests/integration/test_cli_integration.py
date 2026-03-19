@@ -12,76 +12,9 @@ import tempfile
 
 import pytest
 from click.testing import CliRunner
-from datasets import Dataset
 from unittest.mock import patch
 
 from evaldataset.cli import main
-
-
-# ---------------------------------------------------------------------------
-# テスト用データセットファクトリ
-# ---------------------------------------------------------------------------
-
-def _clean_dataset(n: int = 5) -> Dataset:
-    """品質問題がない正常なデータセット（n件）を返す。
-
-    各テキストはユニークな内容にし、near-duplicate WARNING を回避する。
-    """
-    unique_contents = [
-        "The quick brown fox jumps over the lazy dog with agility and grace.",
-        "Machine learning algorithms process large amounts of data efficiently.",
-        "Natural language processing enables computers to understand human speech.",
-        "Data science combines statistics, mathematics, and programming effectively.",
-        "Cloud computing provides scalable infrastructure for modern applications.",
-        "Artificial intelligence transforms industries and reshapes human work patterns.",
-        "Software engineering requires careful design, testing, and documentation practices.",
-        "Database systems store and retrieve structured information with reliability.",
-        "Network security protects digital assets from unauthorized access and threats.",
-        "Web development creates interactive applications using modern browser technologies.",
-    ]
-    texts = [unique_contents[i % len(unique_contents)] + f" Document {i}."
-             for i in range(n)]
-    return Dataset.from_dict({"text": texts})
-
-
-def _dataset_with_warnings() -> Dataset:
-    """WARNING レベルの Issue（短すぎるテキスト）を含むデータセットを返す。"""
-    return Dataset.from_dict({
-        "text": [
-            "Short",  # 50文字未満 → TextLengthChecker が WARNING を発生させる
-            "This is a normal document with sufficient text length for quality checks.",
-        ]
-    })
-
-
-def _dataset_with_errors() -> Dataset:
-    """ERROR レベルの Issue（Noneフィールド）を含むデータセットを返す。"""
-    return Dataset.from_dict({
-        "text": [None, "Normal text with sufficient length for quality checks."]
-    })
-
-
-def _large_dataset(n: int = 200) -> Dataset:
-    """1,000件未満だが --sample-size テスト用の十分なサイズのデータセット。"""
-    return Dataset.from_dict({
-        "text": [
-            f"This is document number {i}. "
-            "It has sufficient length to pass the text length checker "
-            "and contains absolutely no quality issues."
-            for i in range(n)
-        ]
-    })
-
-
-def _dataset_with_html_and_control_chars() -> Dataset:
-    """HTMLタグと制御文字を含むデータセット（--fix テスト用）。"""
-    return Dataset.from_dict({
-        "text": [
-            "<p>Hello <b>world</b></p>",
-            "Text with\x00control chars",
-            "Normal clean text without any issues at all.",
-        ]
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +27,7 @@ class TestCliNormalExecution:
     Source: docs/design.md — CLI 受入条件 AC-14-01
     """
 
-    def test_clean_dataset_exits_zero(self):
+    def test_clean_dataset_exits_zero(self, clean_dataset_path):
         """
         AC-14-01: 正常実行（基本フロー）
 
@@ -104,18 +37,16 @@ class TestCliNormalExecution:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _clean_dataset()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/clean-dataset"])
+        result = runner.invoke(main, [clean_dataset_path])
 
         # Assert (Then)
         assert result.exit_code == 0, (
             f"Expected exit code 0, got {result.exit_code}. Output:\n{result.output}"
         )
 
-    def test_clean_dataset_shows_checker_results(self):
+    def test_clean_dataset_shows_checker_results(self, clean_dataset_path):
         """
         AC-14-01: 正常実行 — 全チェッカーの結果がコンソールに表示される
 
@@ -125,12 +56,10 @@ class TestCliNormalExecution:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _clean_dataset()
 
         # Act (When)
         # CliRunner は TTY 非接続のため JSON 出力になる (AC-14-03b)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/clean-dataset"])
+        result = runner.invoke(main, [clean_dataset_path])
 
         # Assert (Then)
         assert result.exit_code == 0
@@ -149,7 +78,7 @@ class TestCliExitCodesOnIssues:
     Source: docs/design.md — CLI 受入条件 AC-14-01b
     """
 
-    def test_warning_issues_exit_code_1(self):
+    def test_warning_issues_exit_code_1(self, warning_dataset_path):
         """
         AC-14-01b: WARNING のみ含むデータセット → 終了コード 1
 
@@ -159,11 +88,9 @@ class TestCliExitCodesOnIssues:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _dataset_with_warnings()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/warning-dataset"])
+        result = runner.invoke(main, [warning_dataset_path])
 
         # Assert (Then)
         assert result.exit_code == 1, (
@@ -171,7 +98,7 @@ class TestCliExitCodesOnIssues:
             f"Output:\n{result.output}"
         )
 
-    def test_error_issues_exit_code_2(self):
+    def test_error_issues_exit_code_2(self, error_dataset_path):
         """
         AC-14-01b: ERROR を含むデータセット → 終了コード 2
 
@@ -181,11 +108,9 @@ class TestCliExitCodesOnIssues:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _dataset_with_errors()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/error-dataset"])
+        result = runner.invoke(main, [error_dataset_path])
 
         # Assert (Then)
         assert result.exit_code == 2, (
@@ -246,7 +171,7 @@ class TestCliJsonOutput:
     Source: docs/design.md — CLI 受入条件 AC-14-03, AC-13-02
     """
 
-    def test_json_output_is_valid_json(self):
+    def test_json_output_is_valid_json(self, clean_dataset_path):
         """
         AC-14-03: --output json でのマシン可読出力
 
@@ -256,11 +181,9 @@ class TestCliJsonOutput:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _clean_dataset()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/dataset", "--output", "json"])
+        result = runner.invoke(main, [clean_dataset_path, "--output", "json"])
 
         # Assert (Then)
         # JSON として parse できること
@@ -272,7 +195,7 @@ class TestCliJsonOutput:
             )
         assert output_data is not None
 
-    def test_json_output_contains_summary_and_results_keys(self):
+    def test_json_output_contains_summary_and_results_keys(self, warning_dataset_path):
         """
         AC-13-02: --output json での summary / results キー
 
@@ -282,11 +205,9 @@ class TestCliJsonOutput:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _dataset_with_warnings()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/dataset", "--output", "json"])
+        result = runner.invoke(main, [warning_dataset_path, "--output", "json"])
 
         # Assert (Then)
         output_data = json.loads(result.output)
@@ -297,7 +218,7 @@ class TestCliJsonOutput:
             f"'results' key not found in JSON output: {output_data}"
         )
 
-    def test_json_output_exit_code_follows_issue_severity(self):
+    def test_json_output_exit_code_follows_issue_severity(self, warning_dataset_path):
         """
         AC-14-03: --output json 時の exit code は問題の有無に応じて 0/1/2
 
@@ -307,11 +228,9 @@ class TestCliJsonOutput:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _dataset_with_warnings()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/dataset", "--output", "json"])
+        result = runner.invoke(main, [warning_dataset_path, "--output", "json"])
 
         # Assert (Then)
         assert result.exit_code == 1, (
@@ -330,7 +249,7 @@ class TestCliTtyAutoJsonOutput:
     Source: docs/design.md — CLI 受入条件 AC-14-03b
     """
 
-    def test_non_tty_outputs_json_without_flag(self):
+    def test_non_tty_outputs_json_without_flag(self, clean_dataset_path):
         """
         AC-14-03b: TTY 非接続時の自動 JSON 出力
 
@@ -341,11 +260,9 @@ class TestCliTtyAutoJsonOutput:
         # Arrange (Given)
         # CliRunner はデフォルトで TTY 非接続（is_tty=False）
         runner = CliRunner()
-        dataset = _clean_dataset()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(main, ["test/dataset"])
+        result = runner.invoke(main, [clean_dataset_path])
 
         # Assert (Then)
         try:
@@ -368,7 +285,7 @@ class TestCliSampleSize:
     Source: docs/design.md — CLI 受入条件 AC-14-04
     """
 
-    def test_sample_size_limits_checked_rows(self):
+    def test_sample_size_limits_checked_rows(self, large_dataset_path):
         """
         AC-14-04: --sample-size によるサンプリング
 
@@ -376,30 +293,15 @@ class TestCliSampleSize:
         When: evaldataset <DATASET_ID> --sample-size 100 を実行する
         Then: 100 件のサブセットに対してチェックが実行され、
               JSON 出力の total_rows が 100 である
-
-        Note: CLI は load_hf_dataset に CheckerConfig(sample_size=100) を渡す。
-        load_hf_dataset がサンプリングを担当するため、モックは
-        config.sample_size を読み取って適切なサイズのデータセットを返す。
         """
         # Arrange (Given)
         runner = CliRunner()
 
-        def mock_load_with_sampling(dataset_id, **kwargs):
-            config = kwargs.get("config")
-            n = config.sample_size if (config and config.sample_size) else 1000
-            return Dataset.from_dict({
-                "text": [
-                    f"Unique document {i}: sufficient length text for quality checking purposes."
-                    for i in range(n)
-                ]
-            })
-
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", side_effect=mock_load_with_sampling):
-            result = runner.invoke(
-                main,
-                ["test/large-dataset", "--sample-size", "100", "--output", "json"],
-            )
+        result = runner.invoke(
+            main,
+            [large_dataset_path, "--sample-size", "100", "--output", "json"],
+        )
 
         # Assert (Then)
         assert result.exit_code in (0, 1, 2), (
@@ -427,7 +329,7 @@ class TestCliDryRun:
     Source: docs/design.md — CLI 受入条件 AC-14-05
     """
 
-    def test_dry_run_does_not_write_files(self):
+    def test_dry_run_does_not_write_files(self, html_control_chars_dataset_path):
         """
         AC-14-05: --dry-run での変更なし確認
 
@@ -437,22 +339,20 @@ class TestCliDryRun:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _dataset_with_html_and_control_chars()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             fix_output_path = os.path.join(tmpdir, "fixed_dataset")
 
             # Act (When)
-            with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-                result = runner.invoke(
-                    main,
-                    [
-                        "test/dataset",
-                        "--fix",
-                        "--dry-run",
-                        "--fix-output", fix_output_path,
-                    ],
-                )
+            result = runner.invoke(
+                main,
+                [
+                    html_control_chars_dataset_path,
+                    "--fix",
+                    "--dry-run",
+                    "--fix-output", fix_output_path,
+                ],
+            )
 
             # Assert (Then)
             # --dry-run なので fix_output_path にファイルが書き込まれない
@@ -465,7 +365,7 @@ class TestCliDryRun:
                 f"Output:\n{result.output}"
             )
 
-    def test_dry_run_outputs_fix_targets(self):
+    def test_dry_run_outputs_fix_targets(self, html_control_chars_dataset_path):
         """
         AC-14-05: --dry-run — 修正対象レコード一覧が出力される
 
@@ -475,14 +375,12 @@ class TestCliDryRun:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _dataset_with_html_and_control_chars()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(
-                main,
-                ["test/dataset", "--fix", "--dry-run"],
-            )
+        result = runner.invoke(
+            main,
+            [html_control_chars_dataset_path, "--fix", "--dry-run"],
+        )
 
         # Assert (Then)
         assert result.output is not None and len(result.output) > 0, (
@@ -558,7 +456,7 @@ class TestCliRichOutput:
     Source: docs/design.md — レポート受入条件 AC-13-03
     """
 
-    def test_rich_output_flag_produces_output(self):
+    def test_rich_output_flag_produces_output(self, warning_dataset_path):
         """
         AC-13-03: リッチコンソール出力（--output rich 明示指定）
 
@@ -573,15 +471,13 @@ class TestCliRichOutput:
         """
         # Arrange (Given)
         runner = CliRunner()
-        dataset = _dataset_with_warnings()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(
-                main,
-                ["test/dataset", "--output", "rich"],
-                color=False,
-            )
+        result = runner.invoke(
+            main,
+            [warning_dataset_path, "--output", "rich"],
+            color=False,
+        )
 
         # Assert (Then)
         # 何らかの出力が生成されること

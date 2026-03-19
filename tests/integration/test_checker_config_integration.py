@@ -7,39 +7,10 @@ Source: docs/design.md — CheckerConfig と YAML 設定ファイル 受入条�
 
 import json
 
-import pytest
 from click.testing import CliRunner
-from datasets import Dataset
-from unittest.mock import patch
 
 from evaldataset.cli import main
 from evaldataset.config import CheckerConfig
-
-
-# ---------------------------------------------------------------------------
-# テスト用データセットファクトリ
-# ---------------------------------------------------------------------------
-
-
-def _dataset_with_long_text(char_count: int) -> Dataset:
-    """指定文字数のテキストを1件含み、正常な短いテキストを1件含むデータセット。"""
-    return Dataset.from_dict({
-        "text": [
-            "x" * char_count,
-            "This is a normal document with sufficient text length for quality checks.",
-        ]
-    })
-
-
-def _near_duplicate_dataset() -> Dataset:
-    """near-duplicate チェッカーが検出するような類似テキストペアを含むデータセット。
-
-    1文字だけ違う極めて類似したテキストペア。NearDuplicateChecker が
-    実行された場合は WARNING を検出する。
-    """
-    base = "word " * 100  # 100語の同一内容
-    variant = base[:-1] + "X"  # 最後の1文字だけ違う
-    return Dataset.from_dict({"text": [base, variant]})
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +137,9 @@ class TestCheckerConfigCliIntegration:
     Source: docs/design.md — CheckerConfig と YAML 設定ファイル 受入条件 (AC-15-03)
     """
 
-    def test_config_yaml_max_length_causes_warning_for_exceeding_text(self, tmp_path):
+    def test_config_yaml_max_length_causes_warning_for_exceeding_text(
+        self, tmp_path, long_text_dataset_path_5001,
+    ):
         """
         AC-15-03: --config オプションでの CLI 連携
 
@@ -178,21 +151,17 @@ class TestCheckerConfigCliIntegration:
         config_file = tmp_path / "custom_config.yaml"
         config_file.write_text("max_length: 5000\n")
 
-        # 5,001 文字のテキストを含むデータセット（max_length=5000 を超過する）
-        dataset = _dataset_with_long_text(5001)
-
         runner = CliRunner()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(
-                main,
-                [
-                    "test/dataset",
-                    "--config", str(config_file),
-                    "--output", "json",
-                ],
-            )
+        result = runner.invoke(
+            main,
+            [
+                long_text_dataset_path_5001,
+                "--config", str(config_file),
+                "--output", "json",
+            ],
+        )
 
         # Assert (Then)
         assert result.exit_code in (1, 2), (
@@ -224,7 +193,9 @@ class TestCheckerConfigCliIntegration:
             f"with max_length=5000. issues: {issues}"
         )
 
-    def test_config_yaml_max_length_no_warning_for_within_limit_text(self, tmp_path):
+    def test_config_yaml_max_length_no_warning_for_within_limit_text(
+        self, tmp_path, long_text_dataset_path_5000,
+    ):
         """
         AC-15-03 補足: max_length: 5000 の設定で 5,000 文字のテキストは WARNING なし
 
@@ -236,21 +207,17 @@ class TestCheckerConfigCliIntegration:
         config_file = tmp_path / "custom_config.yaml"
         config_file.write_text("max_length: 5000\n")
 
-        # ちょうど 5,000 文字（境界値 = 許容範囲内）のデータセット
-        dataset = _dataset_with_long_text(5000)
-
         runner = CliRunner()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(
-                main,
-                [
-                    "test/dataset",
-                    "--config", str(config_file),
-                    "--output", "json",
-                ],
-            )
+        result = runner.invoke(
+            main,
+            [
+                long_text_dataset_path_5000,
+                "--config", str(config_file),
+                "--output", "json",
+            ],
+        )
 
         # Assert (Then)
         output_data = json.loads(result.output)
@@ -286,7 +253,9 @@ class TestCheckerConfigSkipCheckers:
     Source: docs/design.md — CheckerConfig と YAML 設定ファイル 受入条件 (AC-15-04)
     """
 
-    def test_skip_near_duplicate_checker_via_yaml(self, tmp_path):
+    def test_skip_near_duplicate_checker_via_yaml(
+        self, tmp_path, near_duplicate_dataset_path,
+    ):
         """
         AC-15-04: skip_checkers によるチェッカースキップ
 
@@ -298,21 +267,17 @@ class TestCheckerConfigSkipCheckers:
         config_file = tmp_path / "skip_config.yaml"
         config_file.write_text('skip_checkers:\n  - "near_duplicate"\n')
 
-        # 類似テキストを含むデータセット（NearDuplicateChecker が実行されれば WARNING が出る）
-        dataset = _near_duplicate_dataset()
-
         runner = CliRunner()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(
-                main,
-                [
-                    "test/dataset",
-                    "--config", str(config_file),
-                    "--output", "json",
-                ],
-            )
+        result = runner.invoke(
+            main,
+            [
+                near_duplicate_dataset_path,
+                "--config", str(config_file),
+                "--output", "json",
+            ],
+        )
 
         # Assert (Then)
         assert result.exit_code in (0, 1, 2), (
@@ -332,7 +297,9 @@ class TestCheckerConfigSkipCheckers:
             f"NearDuplicateChecker should be skipped but found results: {near_dup_results}"
         )
 
-    def test_skip_near_duplicate_checker_via_cli_option(self):
+    def test_skip_near_duplicate_checker_via_cli_option(
+        self, near_duplicate_dataset_path,
+    ):
         """
         AC-15-04 補足: --skip-checker CLI オプションによるチェッカースキップ
 
@@ -344,19 +311,17 @@ class TestCheckerConfigSkipCheckers:
         （設定マージ優先順位: CLI > YAML > デフォルト）
         """
         # Arrange (Given)
-        dataset = _near_duplicate_dataset()
         runner = CliRunner()
 
         # Act (When)
-        with patch("evaldataset.cli.load_hf_dataset", return_value=dataset):
-            result = runner.invoke(
-                main,
-                [
-                    "test/dataset",
-                    "--skip-checker", "near_duplicate",
-                    "--output", "json",
-                ],
-            )
+        result = runner.invoke(
+            main,
+            [
+                near_duplicate_dataset_path,
+                "--skip-checker", "near_duplicate",
+                "--output", "json",
+            ],
+        )
 
         # Assert (Then)
         assert result.exit_code in (0, 1, 2), (
