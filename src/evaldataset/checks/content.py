@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 import tiktoken
@@ -11,6 +12,7 @@ from evaldataset.checks.base import BaseChecker
 from evaldataset.checks.registry import register
 from evaldataset.models import CheckResult, Issue, Severity
 from evaldataset.utils.pii import detect_pii as find_pii
+from evaldataset.utils.text import email_density, url_density
 
 
 @register
@@ -124,5 +126,108 @@ class TokenLengthChecker(BaseChecker):
         result.stats = {
             "total_rows": len(dataset),
             "over_limit_count": len(over_limit_indices),
+        }
+        return result
+
+
+@register
+class BoilerplateChecker(BaseChecker):
+    """Detect boilerplate text patterns and excessive URL/email density."""
+
+    name = "boilerplate"
+
+    def check(self, dataset: Dataset, text_field: str) -> CheckResult:
+        result = CheckResult(checker_name=self.name)
+
+        patterns = [
+            re.compile(p) for p in self.config.boilerplate_patterns
+        ]
+        max_url = self.config.max_url_density
+        max_email = self.config.max_email_density
+
+        boilerplate_indices: list[int] = []
+        boilerplate_details: list[dict[str, str | int]] = []
+        high_url_indices: list[int] = []
+        high_email_indices: list[int] = []
+
+        for i, row in enumerate(dataset):
+            value = row.get(text_field)
+            # Skip None and non-string values
+            if value is None or not isinstance(value, str):
+                continue
+
+            # Check boilerplate patterns
+            for pattern in patterns:
+                if pattern.search(value):
+                    boilerplate_indices.append(i)
+                    boilerplate_details.append(
+                        {
+                            "row_index": i,
+                            "matched_pattern": pattern.pattern,
+                        }
+                    )
+                    break  # One match per row is enough
+
+            # Check URL density
+            if url_density(value) > max_url:
+                high_url_indices.append(i)
+
+            # Check email density
+            if email_density(value) > max_email:
+                high_email_indices.append(i)
+
+        if boilerplate_indices:
+            result.issues.append(
+                Issue(
+                    checker=self.name,
+                    severity=Severity.INFO,
+                    message=(
+                        f"Found {len(boilerplate_indices)} rows with "
+                        f"boilerplate text"
+                    ),
+                    row_indices=boilerplate_indices,
+                    details={
+                        "boilerplate_matches": boilerplate_details,
+                    },
+                )
+            )
+
+        if high_url_indices:
+            result.issues.append(
+                Issue(
+                    checker=self.name,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Found {len(high_url_indices)} rows with URL "
+                        f"density exceeding {max_url}"
+                    ),
+                    row_indices=high_url_indices,
+                    details={
+                        "max_url_density": max_url,
+                    },
+                )
+            )
+
+        if high_email_indices:
+            result.issues.append(
+                Issue(
+                    checker=self.name,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Found {len(high_email_indices)} rows with email "
+                        f"density exceeding {max_email}"
+                    ),
+                    row_indices=high_email_indices,
+                    details={
+                        "max_email_density": max_email,
+                    },
+                )
+            )
+
+        result.stats = {
+            "total_rows": len(dataset),
+            "boilerplate_count": len(boilerplate_indices),
+            "high_url_density_count": len(high_url_indices),
+            "high_email_density_count": len(high_email_indices),
         }
         return result
