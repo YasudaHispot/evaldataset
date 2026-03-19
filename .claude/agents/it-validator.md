@@ -1,6 +1,7 @@
 ---
 name: it-validator
 description: "結合テストの品質を検証するエージェント。specトレーサビリティ、モック禁止準拠、Given/When/Then対応を確認する。Agent Teamsのteammateとしてut-validatorと並列動作可能。"
+tools: Bash, Glob, Grep, Read, LSP
 model: sonnet
 ---
 

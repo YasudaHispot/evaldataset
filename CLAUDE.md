@@ -55,7 +55,8 @@ UT（ユニットテスト）とIT（結合テスト）を分離する。
 - **配置**: `tests/unit/`
 - **src参照**: OK
 - **モック**: OK（`docs/mock-policy.md` 参照）
-- **作成**: `/unit-test` スキルまたは Agent Teams の test-writer
+- **作成（手動）**: `/unit-test` スキル
+- **作成（ループ）**: Agent Teams の test-writer（`/continue-task` `/fix-issues` から起動）
 - **実行**: `uv run pytest tests/unit/ -v`
 
 ### IT（結合テスト）
@@ -63,7 +64,8 @@ UT（ユニットテスト）とIT（結合テスト）を分離する。
 - **配置**: `tests/integration/`
 - **src参照**: 禁止（`docs/design.md` の受入条件から導出）
 - **モック**: 正常系では禁止（`docs/mock-policy.md` 参照）
-- **作成**: `/spec-test` スキル（コンテキスト分離）
+- **作成（手動）**: `/spec-test` スキル（コンテキスト分離）
+- **作成（ループ）**: Agent Teams の it-writer（`/continue-task` `/fix-issues` から起動）
 - **実行**: `uv run pytest tests/integration/ -v`
 - **トレーサビリティ**: 各テストにGiven/When/Thenコメント必須
 
@@ -91,6 +93,8 @@ UT（ユニットテスト）とIT（結合テスト）を分離する。
 |-------------|------|--------------|
 | implementer | コード実装 | フェーズ2でtest-writerと並列 |
 | test-writer | UT作成 | フェーズ2でimplementerと並列 |
+| it-writer | IT作成（src参照禁止） | フェーズ3で単独 |
+| fixer | レビューMajor指摘の修正 | フェーズ4.5で単独 |
 
 #### レビューチーム
 
@@ -107,14 +111,26 @@ UT（ユニットテスト）とIT（結合テスト）を分離する。
     ↓    または /create-spec（簡易版、specのみ作成）
 フェーズ2: implementer + test-writer（並列、UT作成）
     ↓
-フェーズ3: /spec-test（IT作成・実行、src参照禁止）
+フェーズ3: it-writer（IT作成、src参照禁止）
     ↓
 フェーズ4: code-reviewer + ut-validator + it-validator（並列レビュー）
+    ↓
+フェーズ4.5: fixer（Major指摘があれば修正）
 ```
+
+### オーケストレータ / ワーカー分離
+
+`/continue-task` `/fix-issues` ではオーケストレータ/ワーカー分離を採用する:
+
+- **オーケストレータ（メイン会話）**: ループ制御、git操作、Agent起動、テスト結果確認のみ。ソースコードを直接読まない・書かない
+- **ワーカーAgent**: 実装・テスト・レビュー・修正の全てを担当
+
+この分離により、オーケストレータのコンテキストが軽量に保たれ、ループ指示が圧縮されにくくなる。
 
 ### ファイル競合の回避
 
 - implementer → `src/` 配下を担当
 - test-writer → `tests/unit/` 配下を担当
-- `/spec-test` → `tests/integration/` 配下を担当
+- it-writer → `tests/integration/` 配下を担当
+- fixer → 全ファイル編集可能（レビュー指摘の修正のため）
 - 同一ファイルを複数teammateが編集しないよう、リードが調整する

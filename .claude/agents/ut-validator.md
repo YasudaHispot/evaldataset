@@ -1,6 +1,7 @@
 ---
 name: ut-validator
 description: "ユニットテストの品質を検証するエージェント。テストカバレッジ、アサーション妥当性、モック使用の適切さを確認する。Agent Teamsのteammateとしてit-validatorと並列動作可能。"
+tools: Bash, Glob, Grep, Read, LSP
 model: sonnet
 ---
 

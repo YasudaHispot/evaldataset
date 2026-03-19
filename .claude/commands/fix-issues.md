@@ -4,33 +4,46 @@ description: "ISSUEを連続して修正します。引数でISSUE番号を指�
 
 **指定されたISSUE:** $ARGUMENTS
 
-まず、`CLAUDE.md`の内容を読み、タスクの実装について理解します。
-また、`docs/`配下のドキュメントを参照します。
+## 最重要ルール: 自動継続
 
-以下のフェーズを、全てのISSUEが完了するまで繰り返します。
+**ISSUE修正完了後に確認を求めたり、進捗報告で応答を終えてはいけない。**
+
+- 1つのISSUEのマージ完了 → 即座にフェーズ1に戻って次のISSUEを開始する
+- ユーザーが明示的に停止を指示した場合のみ停止する
+
+## アーキテクチャ: オーケストレータ / ワーカー分離
+
+**オーケストレータ（この会話）の役割:**
+- ループ制御、git操作、Agent起動、テスト実行結果の確認のみ
+- ソースコードを直接読まない・書かない（全てAgentに委譲）
+
+**ワーカーAgent の役割:**
+- Phase 2: implementer + test-writer（修正 + UT）
+- Phase 3: it-writer（IT作成）
+- Phase 4: code-reviewer + ut-validator + it-validator（レビュー）
+- Phase 4.5: fixer（Major指摘の修正）
 
 ---
 
-## フェーズ1: 現在のISSUEの修正状態を確認
+以下のフェーズを、全てのISSUEが完了するまで繰り返す。
+
+## フェーズ1: ISSUE特定・ブランチ作成
 
 ### 引数でISSUE番号が指定されている場合
-指定されたISSUE番号（例: `#79 #80`）をパースし、対象ISSUEリストとして保持する。
-- 指定されたISSUEのみを対象として処理を行う
-- 指定された順序で処理する
+指定されたISSUE番号をパースし、対象ISSUEリストとして保持する。指定された順序で処理する。
 
 ### 引数が指定されていない場合
 全ての未修正ISSUEを対象とする。
 
 ---
 
-現在のブランチが、ISSUEのブランチであるか確認する。
-ブランチ名 : `fix{n}` (n:ISSUE番号)
+現在のブランチが、ISSUEのブランチであるか確認する。ブランチ名: `fix{n}` (n:ISSUE番号)
 
 ### 現在のブランチがISSUEのブランチの場合
 対象のマージしていない状態のPRが存在するか確認する。
 
 #### 存在する場合
-  1. 現在ISSUEが修正であるとして、そのISSUEを対象として、フェーズ2に進む。
+  1. 現在ISSUEが修正中であるとして、そのISSUEを対象として、フェーズ2に進む。
 
 #### 存在しない場合
   1. ISSUEの修正が完了していると判断し、mainブランチに切り替える。
@@ -39,9 +52,7 @@ description: "ISSUEを連続して修正します。引数でISSUE番号を指�
 ### 現在のブランチがmainブランチの場合
   1. Pullして最新にする。
   2. 未Pushのファイルがある場合は、ユーザに確認をとるため、一時停止する。
-  3. 対象ISSUEリストから**次の未修整ISSUE**1つに対して、ISSUE用のブランチを作る。
-     - 引数指定時: 指定された順序で次のISSUE
-     - 引数なし: 最も若い番号の未修整ISSUE
+  3. 対象ISSUEリストから次の未修正ISSUE 1つに対して、ブランチを作る。
   4. そのISSUEを対象として、フェーズ2に進む。
 
 ### いずれのブランチでない場合
@@ -51,58 +62,58 @@ description: "ISSUEを連続して修正します。引数でISSUE番号を指�
 
 対象ISSUEに関連する受入条件（Given/When/Then）が `docs/design.md` に存在するか確認する。
 
-- **存在しない、または修正が必要な場合**: `/create-spec` スキルを使用して、受入条件を作成・更新する
-- **存在する場合**: このフェーズをスキップする
+- **存在しない、または修正が必要な場合**: `/create-spec` スキルを使用して受入条件を作成・更新する
+- **存在する場合**: スキップ
 
 ## フェーズ2: ISSUE修正 + UT（Agent Teams並列）
 
-Agent Teamsを使い、以下の2つのteammateを**並列**で起動する:
-
-- **implementer**: `src/evaldataset/` 配下の修正コードを担当
-- **test-writer**: `tests/unit/` 配下のユニットテストを担当（src参照OK）
+**implementer** と **test-writer** を並列で起動する。
 
 各teammateには以下を伝える:
 - 対象ISSUEの内容
 - `docs/design.md` の参照指示
-- 担当ファイルの範囲（ファイル競合を避けるため）
+- 担当ファイルの範囲
 
-両teammateの完了を待ち、以下を確認する:
-1. UTが通ること（`uv run pytest tests/unit/ -v`）
+両teammateの完了を待ち:
+1. `uv run pytest tests/unit/ -v` を実行してUTが通ることを確認する
 2. 必要ならcommitする
 
-**注意**: teammateの起動が不適切な場合（軽微な修正など）はサブエージェントまたはリード自身が直接修正してもよい。
+**フェーズ3への引き継ぎ**: 対象ISSUEに関連するAC番号を保持する。
 
-## フェーズ3: IT（結合テスト）生成・実行
+## フェーズ3: IT生成・実行（Agent）
 
-`/spec-test` スキルを使用して、specベースの結合テストを生成・実行する:
+**it-writer** を起動する。
 
-1. `docs/design.md` の受入条件（Given/When/Then）から結合テストを生成
-2. `tests/integration/` に配置
-3. ITを実行（`uv run pytest tests/integration/ -v`）
-4. 失敗時はspecに基づいて判断（spec合致→実装バグ、spec乖離→テスト修正）
-5. 必要ならcommitする
-6. PRを作る
+以下を伝える:
+- 対象ISSUEに関連する受入条件（AC番号と Given/When/Then の内容）
+- `docs/design.md` の参照指示
+- src参照禁止・モック禁止のルール
+- 既存ITファイルのパターン参照指示
 
-## フェーズ4: レビュー（Agent Teams並列レビュー）
+完了を待ち:
+1. `uv run pytest tests/integration/ -v` を実行してITが通ることを確認する
+2. 必要ならcommitする
 
-Agent Teamsを使い、以下の3つのteammateを**並列**で起動する:
+## フェーズ4: レビュー（Agent Teams並列） → PR → マージ
 
-- **code-reviewer**: コード品質、DRY/KISS、設計準拠を確認
-- **ut-validator**: UTの品質・カバレッジを確認
-- **it-validator**: ITのspecトレーサビリティ、mock-policy準拠を確認
+**code-reviewer**、**ut-validator**、**it-validator** を並列で起動する。
+
+各teammateには以下を伝える:
+- 対象ISSUEの内容と対象ファイル
+- `docs/design.md` の受入条件（AC番号）
 
 全teammateの完了を待ち、結果を統合する:
-1. 問題がある場合は、修正を行う。ユーザーに確認が必要な場合は一時停止する。
-2. 必要ならcommit&pushする。
-3. PRに記述する。
-4. PRをマージする。
-5. フェーズ1に戻る
+1. Major指摘がある場合 → **fixer** を起動する。fixer には各レビューアのMajor指摘（ファイルパス、指摘内容）をテキストで渡す
+2. `uv run pytest tests/ -v` で全テスト通過を確認する
+3. 必要ならcommitする
+4. pushしてPR作成
+5. PRをマージ
+
+**即座にフェーズ1に戻る — ここで停止してはいけない。**
 
 ---
 
 ## 終了条件
 
 - 対象ISSUEリストの全ての修正が完了した場合、処理を終了する。
-  - 引数指定時: 指定された全ISSUEの修正完了
-  - 引数なし: 全ての未修正ISSUEの修正完了
 - ユーザーが一時停止を指示した場合、処理を中断する。

@@ -12,11 +12,13 @@ if [ ! -f "$REPORT_FILE" ]; then
     exit 1
 fi
 
-python3 -c "
+REPORT_FILE="$REPORT_FILE" python3 -c "
 import json
+import os
 import sys
 
-with open('$REPORT_FILE') as f:
+report_file = os.environ['REPORT_FILE']
+with open(report_file) as f:
     report = json.load(f)
 
 print('=' * 60)

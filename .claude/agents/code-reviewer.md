@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
-description: "Use this agent when you need to review recently modified code for quality, compliance with project standards, and alignment with design documents. This agent should be invoked after implementing a feature or making code changes to ensure they follow DRY/KISS principles, CLAUDE.md guidelines, implementation procedures, and design specifications. The agent accepts a parameter to specify the scope of review (e.g., specific files, directories, or recent changes).\n\nExamples:\n\n<example>\nContext: User has just finished implementing a new checker and wants to verify the code quality.\nuser: \"I just implemented the duplicate checker. Can you review it?\"\nassistant: \"I'll use the code-reviewer agent to review your recently implemented duplicate checker.\"\n</example>\n\n<example>\nContext: User wants to review changes in a specific directory before committing.\nuser: \"Please review the changes I made in src/cpt_checker/checks/\"\nassistant: \"I'll launch the code-reviewer agent to review the changes in the src/cpt_checker/checks/ directory.\"\n</example>\n\n<example>\nContext: User completed a task from the task list and wants comprehensive review.\nuser: \"タスク3.2の実装が完了しました。レビューをお願いします。\"\nassistant: \"タスク3.2の実装をレビューするために、code-reviewerエージェントを起動します。\"\n</example>"
-tools: Bash, Glob, Grep, Read, WebFetch, TodoWrite, WebSearch, Skill, LSP, MCPSearch
+description: "コード品質、DRY/KISS原則、設計書準拠、CLAUDE.mdガイドライン準拠を確認するレビューエージェント。Agent Teamsのteammateとしてut-validator/it-validatorと並列動作可能。"
+tools: Bash, Glob, Grep, Read, WebFetch, WebSearch, LSP, MCPSearch
 model: opus
 ---
 
