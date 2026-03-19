@@ -24,7 +24,10 @@ description: "全タスクを連続して実装します"
 ### オーケストレータが使ってよい操作
 
 - `Bash`: git checkout/add/commit/push, `gh issue list/view(番号取得のみ)`, `gh pr create/merge`, `uv run pytest --tb=line | tail -20`, `git diff main --name-only`, `grep -c`（AC存在確認）
-- `Agent`: ワーカーAgent起動（テンプレートに従う）
+- `Agent`: ワーカーAgent起動（テンプレートに従う。並列フェーズでは `team_name` パラメータを指定）
+- `TeamCreate`: Agent Teams 作成（並列フェーズの前に使用。1セッションにつき1チームのみ）
+- `TeamDelete`: Agent Teams 削除（次のタスクに進む前にクリーンアップ）
+- `SendMessage`: teammate への個別シャットダウン送信（ブロードキャスト不可）
 - `Skill`: `/create-spec` 等
 
 ### Agent返却値のルール
@@ -78,7 +81,8 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 
 **注意: src/ tests/ docs/ を読まないこと。Issue番号だけAgentに渡す。**
 
-**implementer** と **test-writer** を並列で起動する。
+1. `TeamCreate` でチーム `task{n}` を作成する（既存チームがある場合はスキップ）
+2. **implementer**（`name: "implementer"`, `subagent_type: "implementer"`）と **test-writer**（`name: "test-writer"`, `subagent_type: "test-writer"`）を `team_name: "task{n}"` で並列起動する
 
 ### implementer プロンプトテンプレート
 
@@ -108,12 +112,13 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 > **応答形式**: 最終応答は10行以内のサマリーのみ返すこと。詳細な分析やコードスニペットは応答に含めないこと。
 
 両teammateの完了を待ち:
-1. `uv run pytest tests/unit/ --tb=line -q | tail -20` を実行してUTが通ることを確認する
-2. 必要ならcommitする
+1. `SendMessage` で `implementer` と `test-writer` に個別にシャットダウン（`{type: "shutdown_request"}`）を送信する
+2. `uv run pytest tests/unit/ --tb=line -q | tail -20` を実行してUTが通ることを確認する
+3. 必要ならcommitする
 
 ### テスト失敗時のフロー
 1. pytest 出力の末尾（失敗テスト名）だけ確認する
-2. **fixer** を起動し、pytest 出力をそのまま渡す（自分でコードを読んで原因調査しない）
+2. **fixer**（`subagent_type: "fixer"`）を subagent として起動し、pytest 出力をそのまま渡す（自分でコードを読んで原因調査しない）
 3. fixer 完了後、再度 pytest を実行する
 4. 2回失敗した場合はユーザーに報告して停止する
 
@@ -121,7 +126,7 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 
 **注意: src/ tests/ docs/ を読まないこと。Issue番号だけAgentに渡す。**
 
-**it-writer** を起動する。
+**it-writer**（`subagent_type: "it-writer"`）を subagent として起動する（単独タスクのため `team_name` 不要）。
 
 ### it-writer プロンプトテンプレート
 
@@ -149,7 +154,7 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 
 `git diff main --name-only` で変更ファイル一覧を取得する（ファイルの中身は読まない）。
 
-**code-reviewer**、**ut-validator**、**it-validator** を並列起動する。
+**code-reviewer**（`name: "code-reviewer"`, `subagent_type: "code-reviewer"`）、**ut-validator**（`name: "ut-validator"`, `subagent_type: "ut-validator"`）、**it-validator**（`name: "it-validator"`, `subagent_type: "it-validator"`）を `team_name: "task{n}"` で並列起動する。
 
 ### code-reviewer プロンプトテンプレート
 
@@ -182,11 +187,12 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 > **応答形式**: 最終応答は10行以内のサマリーのみ返すこと。Major指摘がある場合は指摘内容（ファイルパスと1行説明）のみ列挙すること。
 
 全teammateの完了を待ち、結果を統合する:
-1. Major指摘がある場合 → **fixer** を起動する
-2. `uv run pytest tests/ --tb=line -q | tail -20` で全テスト通過を確認する。テスト失敗時は**フェーズ2のテスト失敗時のフロー**に従う
-3. 必要ならcommitする
-4. pushしてPR作成
-5. PRをマージ
+1. `SendMessage` で `code-reviewer`, `ut-validator`, `it-validator` に個別にシャットダウン（`{type: "shutdown_request"}`）を送信する
+2. Major指摘がある場合 → **fixer**（`subagent_type: "fixer"`）を subagent として起動する
+3. `uv run pytest tests/ --tb=line -q | tail -20` で全テスト通過を確認する。テスト失敗時は**フェーズ2のテスト失敗時のフロー**に従う
+4. 必要ならcommitする
+5. pushしてPR作成
+6. PRをマージ
 
 ### fixer プロンプトテンプレート
 
@@ -207,7 +213,7 @@ Agentの返却値はオーケストレータのコンテキストに蓄積され
 2. 2回失敗した場合はユーザーに報告して停止する
 3. **自分で実装・テスト作成・レビューを行ってはいけない**
 
-**即座にフェーズ1に戻る — ここで停止してはいけない。**
+**`TeamDelete` でチーム `task{n}` を削除してから、即座にフェーズ1に戻る — ここで停止してはいけない。**
 
 ---
 
