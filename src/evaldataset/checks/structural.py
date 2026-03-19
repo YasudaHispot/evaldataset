@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datasets import Dataset
+from datasets import Dataset, Value
 
 from evaldataset.checks.base import BaseChecker
 from evaldataset.checks.registry import register
@@ -63,7 +63,7 @@ class SchemaChecker(BaseChecker):
             )
         else:
             feature = dataset.features[text_field]
-            if str(feature) != "Value(dtype='string', id=None)":
+            if not (isinstance(feature, Value) and feature.dtype == "string"):
                 result.issues.append(
                     Issue(
                         checker=self.name,
