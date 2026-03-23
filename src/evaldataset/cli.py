@@ -19,7 +19,7 @@ import click
 
 from evaldataset.checks import get_all_checkers
 from evaldataset.config import CheckerConfig
-from evaldataset.fixer import TextCleaner
+from evaldataset.fixer import RowFilter, TextCleaner
 from evaldataset.loader import load_hf_dataset
 from evaldataset.models import CheckResult, Issue, Report, Severity
 from evaldataset.report.json_reporter import JsonReporter
@@ -233,7 +233,7 @@ def main(
     fix_stats: dict[str, Any] | None = None
     if fix or dry_run:
         fix_stats = _run_fix_pipeline(
-            dataset, text_field, fix_output, dry_run, is_json
+            dataset, text_field, config, fix_output, dry_run, is_json
         )
 
     # --- Render report ---
@@ -276,13 +276,43 @@ def _build_config(
 def _run_fix_pipeline(
     dataset: Any,
     text_field: str,
+    config: CheckerConfig,
     fix_output: str | None,
     dry_run: bool,
     is_json: bool,
 ) -> dict[str, Any]:
-    """Run the TextCleaner pipeline, optionally writing the result."""
+    """Run the full fix pipeline: TextCleaner -> checkers -> RowFilter.
+
+    Pipeline steps:
+    1. TextCleaner: text-level transformations (mojibake, HTML, control
+       chars, whitespace).
+    2. Re-run checkers on the cleaned dataset to get fresh results.
+    3. RowFilter: remove problem rows based on checker results.
+
+    In ``--dry-run`` mode the pipeline reports what would change but does
+    not write the output.
+    """
+    # Step 1: TextCleaner (text transformations)
     cleaner = TextCleaner()
-    cleaned_dataset, stats = cleaner.fix_dataset(dataset, text_field)
+    cleaned_dataset, clean_stats = cleaner.fix_dataset(dataset, text_field)
+
+    # Step 2: Run checkers on cleaned data to get fresh results
+    check_results = _run_checkers(cleaned_dataset, text_field, config)
+
+    # Step 3: Preprocess duplicate results (keep first of each group)
+    # then run RowFilter to remove problem rows
+    row_filter = RowFilter()
+    adjusted_results = row_filter.strip_first_duplicates(
+        cleaned_dataset, check_results, text_field=text_field
+    )
+    filtered_dataset, filter_stats = row_filter.filter_dataset(
+        cleaned_dataset,
+        adjusted_results,
+        skip_checkers=config.skip_checkers,
+    )
+
+    # Merge clean_stats and filter_stats into a combined stats dict
+    stats: dict[str, Any] = {**clean_stats, "filter_stats": filter_stats}
 
     if dry_run:
         # In dry-run mode we report what would be fixed but do not write.
@@ -291,7 +321,9 @@ def _run_fix_pipeline(
 
             console = Console()
             console.print(
-                f"\n[bold]Dry-run:[/bold] {stats['total_fixed']} rows would be modified."
+                f"\n[bold]Dry-run:[/bold] {clean_stats['total_fixed']} rows "
+                f"would be modified, {filter_stats['total_rows_removed']} rows "
+                f"would be removed."
             )
         return stats
 
@@ -303,7 +335,7 @@ def _run_fix_pipeline(
             raise click.BadParameter(
                 f"Output path must be within current directory: {fix_output}"
             )
-        cleaned_dataset.save_to_disk(fix_output)
+        filtered_dataset.save_to_disk(fix_output)
         if not is_json:
             from rich.console import Console
 
