@@ -385,6 +385,7 @@ TextCleaner を先に適用することで、クリーニングで解消され�
 | 近似重複の除去 | `NearDuplicateChecker` | 類似行（最初の 1 件を残す） |
 | 短文/長文のフィルタリング | `TextLengthChecker` | `min_length` 未満 / `max_length` 超過の行 |
 | PII を含む行の除去 | `PiiChecker` | PII（メールアドレス等）を含む行 |
+| ボイラープレートの除去 | `BoilerplateChecker` | 定型文・URL高密度・メール高密度の行 |
 
 **統計出力**: `filter_stats` として以下を記録する:
 - 各チェッカー名ごとの除去行数
