@@ -3,6 +3,7 @@
 Covers:
 - AC-05-01: HTMLタグ混入の検出（5件以上のタグでWARNING）
 - AC-05-02: タグなしテキストでの無検出
+- AC-05-03: ソースコードの比較演算子・JSDoc型注釈を誤検出しない
 - 境界値: ちょうど5タグで検出
 - 境界値: ちょうど4タグで無検出
 - 複数レコード混在
@@ -362,3 +363,95 @@ class TestHTMLChecker:
 
         assert result.stats["html_detected_count"] == 0
         assert result.issues == []
+
+    # --- AC-05-03: 比較演算子・JSDoc型注釈を誤検出しない ---
+
+    def test_comparison_operators_only_no_issues(self, checker: HTMLChecker) -> None:
+        """AC-05-03: 比較演算子（< <= > >=）のみを含むソースコードでissuesが空である。"""
+        text = "if (x < 10 && y > 0)"
+        dataset = self._make_dataset([text])
+        result = checker.check(dataset, text_field="text")
+
+        assert result.issues == [], (
+            f"比較演算子のみのテキストでIssueが発生してはならない: {result.issues}"
+        )
+        assert result.stats["html_detected_count"] == 0
+
+    def test_jsdoc_type_annotation_no_issues(self, checker: HTMLChecker) -> None:
+        """AC-05-03: JSDoc型注釈（@return {Array.<*>}）でissuesが空である。"""
+        text = "@return {Array.<*>}"
+        dataset = self._make_dataset([text])
+        result = checker.check(dataset, text_field="text")
+
+        assert result.issues == [], (
+            f"JSDoc型注釈でIssueが発生してはならない: {result.issues}"
+        )
+        assert result.stats["html_detected_count"] == 0
+
+    def test_jsdoc_array_of_number_no_issues(self, checker: HTMLChecker) -> None:
+        """AC-05-03: JSDoc型注釈（Array.<number>）でissuesが空である。"""
+        text = "@param {Array.<number>} arr The input array"
+        dataset = self._make_dataset([text])
+        result = checker.check(dataset, text_field="text")
+
+        assert result.issues == [], (
+            f"JSDoc Array.<number> 注釈でIssueが発生してはならない: {result.issues}"
+        )
+        assert result.stats["html_detected_count"] == 0
+
+    def test_multiple_comparison_operators_multiline_no_issues(
+        self, checker: HTMLChecker
+    ) -> None:
+        """AC-05-03: 多数の比較演算子を含む複数行ソースコードでissuesが空である。
+
+        if (a < b) { } if (c > d) { } if (e <= f) { } を複数行繰り返した場合も
+        HTMLタグとして誤検出されないことを確認する。
+        """
+        single_line = "if (a < b) { } if (c > d) { } if (e <= f) { }"
+        # 複数行に増やして閾値（5件）を超えうる状況にする
+        text = "\n".join([single_line] * 5)
+        dataset = self._make_dataset([text])
+        result = checker.check(dataset, text_field="text")
+
+        assert result.issues == [], (
+            f"比較演算子の多行ソースコードでIssueが発生してはならない: {result.issues}"
+        )
+        assert result.stats["html_detected_count"] == 0
+
+    def test_mixed_html_and_comparison_only_html_counted(
+        self, checker: HTMLChecker
+    ) -> None:
+        """AC-05-03: HTMLタグと比較演算子が混在する場合、HTMLタグのみカウントされる。
+
+        '<p>Hello</p> if (x < 10)' は <p> と </p> の2タグのみカウントされ、
+        閾値5未満のためWARNINGは発生しない。
+        """
+        text = "<p>Hello</p> if (x < 10)"
+        dataset = self._make_dataset([text])
+        result = checker.check(dataset, text_field="text")
+
+        # <p> と </p> の2タグのみ（閾値5未満）
+        assert result.issues == [], (
+            "HTMLタグ2件（閾値5未満）ではWARNINGが発生してはならない"
+        )
+        assert result.stats["html_detected_count"] == 0
+
+    def test_source_code_with_various_comparison_operators_no_issues(
+        self, checker: HTMLChecker
+    ) -> None:
+        """AC-05-03: JavaScript/Pythonソースコードの各種比較演算子で誤検出しない。"""
+        source_code = (
+            "function compare(a, b) {\n"
+            "    if (a < b) return -1;\n"
+            "    if (a > b) return 1;\n"
+            "    if (a <= b && b >= a) return 0;\n"
+            "    return null;\n"
+            "}"
+        )
+        dataset = self._make_dataset([source_code])
+        result = checker.check(dataset, text_field="text")
+
+        assert result.issues == [], (
+            f"JavaScript比較演算子のみのコードでIssueが発生してはならない: {result.issues}"
+        )
+        assert result.stats["html_detected_count"] == 0
