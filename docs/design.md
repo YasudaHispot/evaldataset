@@ -165,6 +165,11 @@ CLI エントリポイント (`evaldataset.cli:main`) がレジストリから�
   - When: `HTMLChecker.check(dataset, text_field="text")` を実行する
   - Then: `CheckResult.issues` が空リストである
 
+- AC-05-03: ソースコードの比較演算子を誤検出しない
+  - Given: JavaScript/Python 等のソースコードで比較演算子（`<`, `<=`, `>`, `>=`）や JSDoc 型注釈（`<*>`, `Array.<number>`）を含むが、実際の HTML タグを含まないテキストの Dataset
+  - When: `HTMLChecker.check(dataset, text_field="text")` を実行する
+  - Then: `CheckResult.issues` が空リストである（比較演算子はHTMLタグとしてカウントされない）
+
 ---
 
 #### MojibakeChecker
