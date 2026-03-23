@@ -216,8 +216,6 @@ class RowFilter:
             Output from running checkers on *dataset*.  For duplicate
             checkers, call :meth:`strip_first_duplicates` beforehand so
             that ``row_indices`` contains only the redundant copies.
-        text_field:
-            Name of the text column.
         skip_checkers:
             Checker names to exclude from filtering (e.g. from
             ``--skip-checker``).
@@ -306,64 +304,108 @@ class RowFilter:
             A shallow copy with adjusted ``row_indices`` for duplicate
             checkers.
         """
-        duplicate_checkers = {"exact_duplicate", "near_duplicate"}
         adjusted: list[CheckResult] = []
 
         for result in check_results:
-            if result.checker_name not in duplicate_checkers:
+            if result.checker_name == "exact_duplicate":
+                adjusted.append(
+                    RowFilter._strip_first_exact_duplicates(result, dataset, text_field)
+                )
+            elif result.checker_name == "near_duplicate":
+                adjusted.append(RowFilter._strip_first_near_duplicates(result))
+            else:
                 adjusted.append(result)
-                continue
-
-            # Collect all flagged indices across issues
-            all_flagged: set[int] = set()
-            for issue in result.issues:
-                all_flagged.update(issue.row_indices)
-
-            if not all_flagged:
-                adjusted.append(result)
-                continue
-
-            # Group by text hash, keep the first (lowest index) per group
-            hash_to_indices: dict[str, list[int]] = defaultdict(list)
-            for idx in sorted(all_flagged):
-                row = dataset[int(idx)]
-                value = row.get(text_field)
-                if value is None or not isinstance(value, str):
-                    continue
-                h = sha256_hash(value)
-                hash_to_indices[h].append(idx)
-
-            keep_indices: set[int] = set()
-            for indices in hash_to_indices.values():
-                if len(indices) >= 2:
-                    keep_indices.add(indices[0])
-
-            # Build adjusted issues (remove kept indices from row_indices)
-            new_issues = []
-            for issue in result.issues:
-                new_row_indices = [
-                    idx for idx in issue.row_indices if idx not in keep_indices
-                ]
-                new_issue = copy(issue)
-                new_issue.row_indices = new_row_indices
-                new_issues.append(new_issue)
-
-            new_result = CheckResult(
-                checker_name=result.checker_name,
-                issues=new_issues,
-                stats=result.stats,
-            )
-            adjusted.append(new_result)
-
-            logger.debug(
-                "strip_first_duplicates[%s]: flagged=%d, kept=%d, removable=%d",
-                result.checker_name,
-                len(all_flagged),
-                len(keep_indices),
-                len(all_flagged) - len(keep_indices),
-            )
 
         return adjusted
+
+    @staticmethod
+    def _strip_first_exact_duplicates(
+        result: CheckResult,
+        dataset: Dataset,
+        text_field: str,
+    ) -> CheckResult:
+        """Keep the first (lowest-index) row of each exact-duplicate hash group."""
+        all_flagged: set[int] = set()
+        for issue in result.issues:
+            all_flagged.update(issue.row_indices)
+
+        if not all_flagged:
+            return result
+
+        # Group by text hash; keep the lowest index per group
+        hash_to_indices: dict[str, list[int]] = defaultdict(list)
+        for idx in sorted(all_flagged):
+            row = dataset[int(idx)]
+            value = row.get(text_field)
+            if value is None or not isinstance(value, str):
+                continue
+            h = sha256_hash(value)
+            hash_to_indices[h].append(idx)
+
+        keep_indices: set[int] = set()
+        for indices in hash_to_indices.values():
+            if len(indices) >= 2:
+                keep_indices.add(indices[0])
+
+        new_issues = []
+        for issue in result.issues:
+            new_issue = copy(issue)
+            new_issue.row_indices = [
+                idx for idx in issue.row_indices if idx not in keep_indices
+            ]
+            new_issues.append(new_issue)
+
+        new_result = CheckResult(
+            checker_name=result.checker_name,
+            issues=new_issues,
+            stats=result.stats,
+        )
+
+        logger.debug(
+            "strip_first_duplicates[exact_duplicate]: flagged=%d, kept=%d, removable=%d",
+            len(all_flagged),
+            len(keep_indices),
+            len(all_flagged) - len(keep_indices),
+        )
+
+        return new_result
+
+    @staticmethod
+    def _strip_first_near_duplicates(result: CheckResult) -> CheckResult:
+        """Keep the lowest-index row from each near-duplicate issue group."""
+        new_issues = []
+        total_kept = 0
+        total_flagged = 0
+
+        for issue in result.issues:
+            if not issue.row_indices:
+                new_issues.append(issue)
+                continue
+
+            total_flagged += len(issue.row_indices)
+            # Keep (preserve) the minimum index in this group
+            min_idx = min(issue.row_indices)
+            new_issue = copy(issue)
+            new_issue.row_indices = [
+                idx for idx in issue.row_indices if idx != min_idx
+            ]
+            new_issues.append(new_issue)
+            total_kept += 1
+
+        new_result = CheckResult(
+            checker_name=result.checker_name,
+            issues=new_issues,
+            stats=result.stats,
+        )
+
+        logger.debug(
+            "strip_first_duplicates[near_duplicate]: flagged=%d, kept=%d, removable=%d",
+            total_flagged,
+            total_kept,
+            total_flagged - total_kept,
+        )
+
+        return new_result
 
     # ------------------------------------------------------------------
     # Private helpers

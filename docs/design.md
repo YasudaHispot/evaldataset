@@ -404,7 +404,7 @@ TextCleaner を先に適用することで、クリーニングで解消され�
   - Then: 短文行が除去され、出力 Dataset が 2 行になり、`filter_stats` に `text_length` の除去数 1 が記録される
 
 - AC-16-04: `--skip-checker` によるフィルタスキップ
-  - Given: 重複行を含む Dataset と `--fix --skip-checker exact_duplicate` オプション
+  - Given: 重複行を含む Dataset と `--fix --skip-checker exact_duplicate --skip-checker near_duplicate` オプション
   - When: CLI から実行する
   - Then: 重複行が除去されず、出力 Dataset の行数が入力と同じである
 

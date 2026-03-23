@@ -418,14 +418,11 @@ class TestRowFilterSkipChecker:
         """
         AC-16-04: --skip-checker によるフィルタスキップ
 
-        Given: 重複行を含む Dataset と --fix --skip-checker exact_duplicate オプション
+        Given: 重複行を含む Dataset と --fix --skip-checker exact_duplicate
+              --skip-checker near_duplicate オプション
         When: CLI から evaldataset <DATASET_ID> --fix --skip-checker exact_duplicate
               --skip-checker near_duplicate --fix-output <PATH> を実行する
         Then: 重複行が除去されず、出力 Dataset の行数が入力と同じである
-
-        Note: 完全一致重複は near_duplicate でも検出されるため、両チェッカーをスキップする。
-        --skip-checker exact_duplicate はRowFilterの exact_duplicate フィルタを
-        無効化することを確認するテストである。
         """
         # Arrange (Given)
         runner = CliRunner()

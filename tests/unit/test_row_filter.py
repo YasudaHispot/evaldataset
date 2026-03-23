@@ -758,3 +758,82 @@ class TestRowFilterPreservesNonTextColumns:
         assert "label" in filtered_dataset.column_names
         # 除去されなかった行の id が正しい
         assert set(filtered_dataset["id"]) == {0, 2, 4}
+
+
+class TestStripFirstDuplicates:
+    """RowFilter.strip_first_duplicates のテスト。"""
+
+    def test_exact_duplicate_keeps_first_row(self) -> None:
+        """exact_duplicate: 3件重複 → 最初の1件が保持され、row_indices から除外される。"""
+        from evaldataset.fixer import RowFilter
+
+        # Given: 3行が同一テキストで重複、row_indices=[0, 1, 2]
+        dataset = _make_dataset(["dup text", "dup text", "dup text"])
+        check_results = [_make_check_result("exact_duplicate", row_indices=[0, 1, 2])]
+
+        # When: strip_first_duplicates を実行する
+        adjusted = RowFilter.strip_first_duplicates(dataset, check_results)
+
+        # Then: 最初の1件（index=0）が保持され、row_indices が [1, 2] になる
+        assert len(adjusted) == 1
+        assert adjusted[0].checker_name == "exact_duplicate"
+        all_indices: list[int] = []
+        for issue in adjusted[0].issues:
+            all_indices.extend(issue.row_indices)
+        assert 0 not in all_indices, "最初の行（index=0）は保持されるべき"
+        assert 1 in all_indices
+        assert 2 in all_indices
+
+    def test_near_duplicate_keeps_minimum_index(self) -> None:
+        """near_duplicate: ペアの最小インデックスが保持される。"""
+        from evaldataset.fixer import RowFilter
+
+        # Given: 2行が近似重複として報告、row_indices=[1, 3]
+        dataset = _make_dataset(
+            ["text A", "near dup text X", "text B", "near dup text Y"]
+        )
+        check_results = [_make_check_result("near_duplicate", row_indices=[1, 3])]
+
+        # When: strip_first_duplicates を実行する
+        adjusted = RowFilter.strip_first_duplicates(dataset, check_results)
+
+        # Then: 最小インデックス（index=1）が保持され、row_indices から除外される
+        assert len(adjusted) == 1
+        all_indices: list[int] = []
+        for issue in adjusted[0].issues:
+            all_indices.extend(issue.row_indices)
+        assert 1 not in all_indices, "最小インデックス（index=1）は保持されるべき"
+        assert 3 in all_indices
+
+    def test_non_duplicate_checker_passes_through(self) -> None:
+        """非重複チェッカーの結果がそのまま通過する。"""
+        from evaldataset.fixer import RowFilter
+
+        # Given: text_length チェッカーの結果
+        dataset = _make_dataset(["short", "normal text", "another text"])
+        check_results = [_make_check_result("text_length", row_indices=[0])]
+
+        # When: strip_first_duplicates を実行する
+        adjusted = RowFilter.strip_first_duplicates(dataset, check_results)
+
+        # Then: row_indices が変更されずそのまま返される
+        assert len(adjusted) == 1
+        assert adjusted[0].checker_name == "text_length"
+        all_indices: list[int] = []
+        for issue in adjusted[0].issues:
+            all_indices.extend(issue.row_indices)
+        assert all_indices == [0]
+
+    def test_empty_check_results(self) -> None:
+        """空の check_results に対する strip 処理が空リストを返す。"""
+        from evaldataset.fixer import RowFilter
+
+        # Given: 空の check_results
+        dataset = _make_dataset(["text a", "text b"])
+        check_results: list = []
+
+        # When: strip_first_duplicates を実行する
+        adjusted = RowFilter.strip_first_duplicates(dataset, check_results)
+
+        # Then: 空リストが返される
+        assert adjusted == []
