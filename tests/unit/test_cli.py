@@ -1311,3 +1311,291 @@ class TestCliHelpers:
 
         config = _build_config(str(config_file), None, [])
         assert config.min_length == 200
+
+
+# ---------------------------------------------------------------------------
+# AC-17: --fix / --dry-run 修正前後レポートの CLI テスト
+# ---------------------------------------------------------------------------
+
+
+def _make_after_report(
+    dataset_id: str = "test/dataset",
+    total_rows: int = 2,
+    results: list | None = None,
+) -> "Report":
+    """修正後レポートのファクトリ。"""
+    from evaldataset.models import Report
+
+    return Report(
+        dataset_id=dataset_id,
+        split="train",
+        total_rows=total_rows,
+        text_field="text",
+        results=results or [],
+    )
+
+
+def _make_fix_stats(
+    total_fixed: int = 1,
+    total_rows: int = 3,
+    rows_removed: int = 1,
+) -> dict:
+    """fix_stats ディクショナリのファクトリ。"""
+    return {
+        "total_rows": total_rows,
+        "total_fixed": total_fixed,
+        "mojibake_fixed": 0,
+        "html_stripped": 0,
+        "control_chars_removed": 0,
+        "whitespace_normalized": 0,
+        "filter_stats": {
+            "exact_duplicate": 0,
+            "near_duplicate": 0,
+            "text_length": rows_removed,
+            "pii": 0,
+            "total_rows_removed": rows_removed,
+            "rows_after_filter": total_rows - rows_removed,
+        },
+    }
+
+
+class TestCliFixBeforeAfterReport:
+    """--fix / --dry-run 実行時の修正前後レポート出力テスト。
+
+    Covers:
+    - AC-17-01: --fix --output json で before, after, fix_stats キーが含まれる
+    - AC-17-02: --dry-run --output json で before, after が含まれ、ファイル出力なし
+    - AC-17-03: Rich 表示で修正前後サマリーが表示される（RichReporter は別途 test_reporter.py でテスト）
+    """
+
+    def test_fix_output_json_contains_before_key(self) -> None:
+        """AC-17-01: --fix --output json で JSON 出力に 'before' キーが含まれる。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["short", "x" * 100, "y" * 100])
+
+        before_checker = MagicMock()
+        before_checker.return_value.check.return_value = _make_check_result(
+            checker_name="text_length",
+            issues=[_make_warning_issue("text_length")],
+        )
+        after_report = _make_after_report(total_rows=2)
+        fix_stats = _make_fix_stats(total_fixed=1, total_rows=3, rows_removed=1)
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={"text_length": before_checker}), \
+             patch("evaldataset.cli._run_fix_pipeline", return_value=(fix_stats, after_report)):
+            result = runner.invoke(
+                main,
+                ["test/dataset", "--fix", "--output", "json"],
+            )
+
+        assert result.exit_code in (0, 1, 2)
+        parsed = json.loads(result.output)
+        assert "before" in parsed
+
+    def test_fix_output_json_contains_after_key(self) -> None:
+        """AC-17-01: --fix --output json で JSON 出力に 'after' キーが含まれる。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["short", "x" * 100, "y" * 100])
+
+        before_checker = MagicMock()
+        before_checker.return_value.check.return_value = _make_check_result(
+            checker_name="text_length",
+            issues=[_make_warning_issue("text_length")],
+        )
+        after_report = _make_after_report(total_rows=2)
+        fix_stats = _make_fix_stats(total_fixed=1, total_rows=3, rows_removed=1)
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={"text_length": before_checker}), \
+             patch("evaldataset.cli._run_fix_pipeline", return_value=(fix_stats, after_report)):
+            result = runner.invoke(
+                main,
+                ["test/dataset", "--fix", "--output", "json"],
+            )
+
+        assert result.exit_code in (0, 1, 2)
+        parsed = json.loads(result.output)
+        assert "after" in parsed
+
+    def test_fix_output_json_contains_fix_stats_key(self) -> None:
+        """AC-17-01: --fix --output json で JSON 出力に 'fix_stats' キーが含まれる。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["short", "x" * 100])
+
+        before_checker = MagicMock()
+        before_checker.return_value.check.return_value = _make_check_result(
+            checker_name="text_length",
+            issues=[_make_warning_issue("text_length")],
+        )
+        after_report = _make_after_report(total_rows=1)
+        fix_stats = _make_fix_stats(total_fixed=1, total_rows=2, rows_removed=1)
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={"text_length": before_checker}), \
+             patch("evaldataset.cli._run_fix_pipeline", return_value=(fix_stats, after_report)):
+            result = runner.invoke(
+                main,
+                ["test/dataset", "--fix", "--output", "json"],
+            )
+
+        assert result.exit_code in (0, 1, 2)
+        parsed = json.loads(result.output)
+        assert "fix_stats" in parsed
+
+    def test_fix_without_flag_no_before_after_keys(self) -> None:
+        """AC-17-01: --fix なしの場合、JSON 出力に 'before'/'after' キーが存在しない。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["x" * 100, "y" * 100])
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={}):
+            result = runner.invoke(main, ["test/dataset", "--output", "json"])
+
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert "before" not in parsed
+        assert "after" not in parsed
+
+    def test_fix_without_flag_has_top_level_summary_and_results(self) -> None:
+        """AC-17-01: --fix なしの場合、従来通り top-level に 'summary', 'results' が存在する。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["x" * 100, "y" * 100])
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={}):
+            result = runner.invoke(main, ["test/dataset", "--output", "json"])
+
+        parsed = json.loads(result.output)
+        assert "summary" in parsed
+        assert "results" in parsed
+
+    def test_fix_after_warnings_lte_before_warnings(self) -> None:
+        """AC-17-01: after.summary.warnings <= before.summary.warnings であること。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["short", "x" * 100, "y" * 100])
+
+        # before: 1 WARNING
+        before_checker = MagicMock()
+        before_checker.return_value.check.return_value = _make_check_result(
+            checker_name="text_length",
+            issues=[_make_warning_issue("text_length")],
+        )
+        # after_report: WARNING なし（問題行除去済み）
+        after_report = _make_after_report(total_rows=2, results=[])
+        fix_stats = _make_fix_stats(total_fixed=1, total_rows=3, rows_removed=1)
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={"text_length": before_checker}), \
+             patch("evaldataset.cli._run_fix_pipeline", return_value=(fix_stats, after_report)):
+            result = runner.invoke(
+                main,
+                ["test/dataset", "--fix", "--output", "json"],
+            )
+
+        assert result.exit_code in (0, 1, 2)
+        parsed = json.loads(result.output)
+        assert "before" in parsed
+        assert "after" in parsed
+        before_warnings = parsed["before"]["summary"]["warnings"]
+        after_warnings = parsed["after"]["summary"]["warnings"]
+        assert after_warnings <= before_warnings
+
+    def test_dry_run_output_json_contains_before_key(self) -> None:
+        """AC-17-02: --dry-run --output json で JSON 出力に 'before' キーが含まれる。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["short", "x" * 100])
+
+        before_checker = MagicMock()
+        before_checker.return_value.check.return_value = _make_check_result(
+            checker_name="text_length",
+            issues=[_make_warning_issue("text_length")],
+        )
+        after_report = _make_after_report(total_rows=1)
+        fix_stats = _make_fix_stats(total_fixed=1, total_rows=2, rows_removed=1)
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={"text_length": before_checker}), \
+             patch("evaldataset.cli._run_fix_pipeline", return_value=(fix_stats, after_report)):
+            result = runner.invoke(
+                main,
+                ["test/dataset", "--fix", "--dry-run", "--output", "json"],
+            )
+
+        assert result.exit_code in (0, 1, 2)
+        parsed = json.loads(result.output)
+        assert "before" in parsed
+
+    def test_dry_run_output_json_contains_after_key(self) -> None:
+        """AC-17-02: --dry-run --output json で JSON 出力に 'after' キーが含まれる。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["short", "x" * 100])
+
+        before_checker = MagicMock()
+        before_checker.return_value.check.return_value = _make_check_result(
+            checker_name="text_length",
+            issues=[_make_warning_issue("text_length")],
+        )
+        after_report = _make_after_report(total_rows=1)
+        fix_stats = _make_fix_stats(total_fixed=1, total_rows=2, rows_removed=1)
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={"text_length": before_checker}), \
+             patch("evaldataset.cli._run_fix_pipeline", return_value=(fix_stats, after_report)):
+            result = runner.invoke(
+                main,
+                ["test/dataset", "--fix", "--dry-run", "--output", "json"],
+            )
+
+        assert result.exit_code in (0, 1, 2)
+        parsed = json.loads(result.output)
+        assert "after" in parsed
+
+    def test_dry_run_does_not_write_file(self) -> None:
+        """AC-17-02: --dry-run では _run_fix_pipeline が dry_run=True で呼ばれる。"""
+        from evaldataset.cli import main
+
+        runner = CliRunner()
+        mock_dataset = _make_dataset(["short", "x" * 100])
+
+        before_checker = MagicMock()
+        before_checker.return_value.check.return_value = _make_check_result(
+            checker_name="text_length",
+            issues=[_make_warning_issue("text_length")],
+        )
+        after_report = _make_after_report(total_rows=1)
+        fix_stats = _make_fix_stats(total_fixed=1, total_rows=2, rows_removed=1)
+
+        with patch("evaldataset.cli.load_hf_dataset", return_value=mock_dataset), \
+             patch("evaldataset.cli.get_all_checkers", return_value={"text_length": before_checker}), \
+             patch("evaldataset.cli._run_fix_pipeline", return_value=(fix_stats, after_report)) \
+             as mock_pipeline:
+            result = runner.invoke(
+                main,
+                ["test/dataset", "--fix", "--dry-run", "--output", "json"],
+            )
+
+        # _run_fix_pipeline は dry_run=True で呼ばれること
+        assert mock_pipeline.called
+        args, kwargs = mock_pipeline.call_args
+        # _run_fix_pipeline のシグネチャ: (dataset, text_field, config, fix_output, dry_run, is_json, *, dataset_id, split)
+        # dry_run は5番目の positional 引数
+        dry_run_arg = args[4] if len(args) > 4 else kwargs.get("dry_run")
+        assert dry_run_arg is True
+        assert result.exit_code in (0, 1, 2)
