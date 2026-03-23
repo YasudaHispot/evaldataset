@@ -356,6 +356,60 @@ CLI エントリポイント (`evaldataset.cli:main`) がレジストリから�
 
 ---
 
+#### RowFilter
+
+**目的**: チェッカーが検出した問題行（`Issue.row_indices`）を使い、該当行を Dataset から除去する。TextCleaner（テキスト変換）の後に適用する。
+
+**実装**: `src/evaldataset/fixer.py` に `RowFilter` クラスを追加
+
+**パイプライン順序**:
+
+```
+1. TextCleaner（既存: テキスト変換）
+2. チェッカー実行（クリーニング後のデータに対して）
+3. RowFilter（新規: 問題行の除去）
+```
+
+TextCleaner を先に適用することで、クリーニングで解消される問題（HTML残留等）を除外し、クリーニング後にも残る問題（短文、重複等）のみをフィルタリング対象にする。
+
+**フィルタリング対象**:
+
+| フィルタ | 対応チェッカー | 除去対象 |
+|---------|-------------|---------|
+| 完全一致重複の除去 | `ExactDuplicateChecker` | 重複行（最初の 1 件を残す） |
+| 近似重複の除去 | `NearDuplicateChecker` | 類似行（最初の 1 件を残す） |
+| 短文/長文のフィルタリング | `TextLengthChecker` | `min_length` 未満 / `max_length` 超過の行 |
+| PII を含む行の除去 | `PiiChecker` | PII（メールアドレス等）を含む行 |
+
+**統計出力**: `filter_stats` として以下を記録する:
+- 各チェッカー名ごとの除去行数
+- `total_rows_removed`: 除去された総行数（重複カウントなし）
+- `rows_after_filter`: フィルタリング後の行数
+
+**受入条件**:
+
+- AC-16-01: 完全一致重複行の除去
+  - Given: 同一テキストの重複行を 3 件含む 5 行の Dataset と `--fix` オプション
+  - When: CLI から `evaldataset <DATASET_ID> --fix --fix-output <PATH>` を実行する
+  - Then: 重複行が 2 件除去され、出力 Dataset が 3 行になり、`filter_stats` に `exact_duplicate` の除去数 2 が記録される
+
+- AC-16-02: 近似重複行の除去
+  - Given: MinHash 類似度が閾値以上のテキストペアを含む Dataset と `--fix` オプション
+  - When: CLI から `evaldataset <DATASET_ID> --fix --fix-output <PATH>` を実行する
+  - Then: 近似重複の片方が除去され、`filter_stats` に `near_duplicate` の除去数が記録される
+
+- AC-16-03: 短文/長文行のフィルタリング
+  - Given: `min_length` 未満のテキスト 1 件と正常テキスト 2 件を含む Dataset と `--fix` オプション
+  - When: CLI から `evaldataset <DATASET_ID> --fix --fix-output <PATH>` を実行する
+  - Then: 短文行が除去され、出力 Dataset が 2 行になり、`filter_stats` に `text_length` の除去数 1 が記録される
+
+- AC-16-04: `--skip-checker` によるフィルタスキップ
+  - Given: 重複行を含む Dataset と `--fix --skip-checker exact_duplicate --skip-checker near_duplicate` オプション
+  - When: CLI から実行する
+  - Then: 重複行が除去されず、出力 Dataset の行数が入力と同じである
+
+---
+
 ### レポート出力
 
 ---
@@ -536,12 +590,19 @@ Reporter
     ├─ RichReporter (デフォルト、TTY接続時)
     └─ JsonReporter (--output json、またはTTY非接続時)
     ↓
-[--fix 指定時] TextCleaner パイプライン
-    ├─ 1. MojibakeFix (ftfy)
-    ├─ 2. HtmlFix (BeautifulSoup)
-    ├─ 3. ControlCharFix (regex)
-    └─ 4. WhitespaceFix (regex)
-    ↓ 修正済み Dataset
+[--fix 指定時] Fix パイプライン
+    ├─ Step 1: TextCleaner（テキスト変換）
+    │   ├─ MojibakeFix (ftfy)
+    │   ├─ HtmlFix (BeautifulSoup)
+    │   ├─ ControlCharFix (regex)
+    │   └─ WhitespaceFix (regex)
+    ├─ Step 2: チェッカー再実行（クリーニング後データに対して）
+    └─ Step 3: RowFilter（問題行の除去）
+        ├─ ExactDuplicateChecker → 重複行除去
+        ├─ NearDuplicateChecker → 近似重複除去
+        ├─ TextLengthChecker → 短文/長文除去
+        └─ PiiChecker → PII含有行除去
+    ↓ 修正・フィルタ済み Dataset
 ```
 
 ## 既知の制約・注意事項
