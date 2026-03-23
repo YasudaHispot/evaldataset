@@ -410,6 +410,29 @@ TextCleaner を先に適用することで、クリーニングで解消され�
 
 ---
 
+#### 修正前後レポート
+
+**目的**: `--fix` / `--dry-run` 実行時に、修正前後のチェック結果を表示し改善度を可視化する。
+
+**受入条件**:
+
+- AC-17-01: `--fix --output json` で修正前後レポートが出力される
+  - Given: WARNING を含む Dataset と `--fix --fix-output <PATH> --output json` オプション
+  - When: CLI を実行する
+  - Then: JSON 出力に `before`（修正前サマリー・結果）と `after`（修正後サマリー・結果）が含まれ、`after.summary.warnings` が `before.summary.warnings` 以下である
+
+- AC-17-02: `--dry-run --output json` で修正前後レポートが出力される
+  - Given: WARNING を含む Dataset と `--fix --dry-run --output json` オプション
+  - When: CLI を実行する
+  - Then: JSON 出力に `before` と `after` が含まれ、ファイル出力は行われない
+
+- AC-17-03: `--fix` で Rich 修正前後レポートが表示される
+  - Given: WARNING を含む Dataset と `--fix --fix-output <PATH>` オプション（`--output` 未指定）
+  - When: CLI を実行する
+  - Then: コンソールに修正前と修正後のサマリーが表示され、改善された項目が確認できる
+
+---
+
 ### レポート出力
 
 ---
