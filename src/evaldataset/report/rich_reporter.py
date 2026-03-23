@@ -22,22 +22,40 @@ class RichReporter:
     def __init__(self, console: Console | None = None) -> None:
         self._console = console or Console()
 
-    def render(self, report: Report, fix_stats: dict[str, Any] | None = None) -> None:
+    def render(
+        self,
+        report: Report,
+        fix_stats: dict[str, Any] | None = None,
+        after_report: Report | None = None,
+    ) -> None:
         """Print the report to the console using Rich formatting.
+
+        When *after_report* is provided (``--fix`` or ``--dry-run``),
+        a before/after comparison is rendered.  Otherwise the output is
+        backward-compatible with the single-report layout.
 
         Parameters
         ----------
         report:
-            The aggregated quality check report.
+            The aggregated quality check report (before fix, or the only
+            report when no fix is applied).
         fix_stats:
-            Optional statistics from the TextCleaner fix pipeline.
+            Optional statistics from the fix pipeline.
+        after_report:
+            Optional post-fix quality check report.
         """
         self._render_header(report)
-        self._render_results_table(report)
-        self._render_issues_detail(report)
-        if fix_stats is not None:
-            self._render_fix_stats(fix_stats)
-        self._render_summary(report)
+
+        if after_report is not None:
+            # --fix / --dry-run: before → fix applied → after
+            self._render_before_after(report, fix_stats, after_report)
+        else:
+            # No fix: original single-report layout
+            self._render_results_table(report)
+            self._render_issues_detail(report)
+            if fix_stats is not None:
+                self._render_fix_stats(fix_stats)
+            self._render_summary(report)
 
     def render_error(self, message: str) -> None:
         """Print an error message to stderr via Rich console.
@@ -148,6 +166,70 @@ class RichReporter:
         self._console.print(
             Panel(summary_text, title=f"[bold {style}]{verdict}[/bold {style}]")
         )
+
+    def _render_before_after(
+        self,
+        before_report: Report,
+        fix_stats: dict[str, Any] | None,
+        after_report: Report,
+    ) -> None:
+        """Render before/after fix comparison (AC-17-03).
+
+        Shows three sections:
+        - Before Fix: issue summary from the original dataset
+        - Fix Applied: cleaning and filtering statistics
+        - After Fix: issue summary from the fixed dataset
+        """
+        # --- Before Fix ---
+        self._console.print()
+        self._console.rule("[bold]Before Fix[/bold]")
+        self._console.print(
+            f"  Issues: {before_report.total_issues} "
+            f"({before_report.total_errors} errors, "
+            f"{before_report.total_warnings} warnings)"
+        )
+        self._render_results_table(before_report)
+        self._render_issues_detail(before_report)
+
+        # --- Fix Applied ---
+        self._console.print()
+        self._console.rule("[bold]Fix Applied[/bold]")
+        if fix_stats is not None:
+            total_fixed = fix_stats.get("total_fixed", 0)
+            self._console.print(f"  Text cleaned: {total_fixed} rows")
+
+            filter_stats = fix_stats.get("filter_stats")
+            if filter_stats is not None:
+                total_removed = filter_stats.get("total_rows_removed", 0)
+                rows_after = filter_stats.get("rows_after_filter", "?")
+
+                # Build per-checker breakdown (exclude aggregate keys)
+                _AGGREGATE_KEYS = {"total_rows_removed", "rows_after_filter"}
+                parts: list[str] = []
+                for key, count in filter_stats.items():
+                    if key in _AGGREGATE_KEYS:
+                        continue
+                    if isinstance(count, int) and count > 0:
+                        parts.append(f"{count} {key}")
+
+                breakdown = ", ".join(parts) if parts else "none"
+                self._console.print(
+                    f"  Rows removed: {total_removed} ({breakdown})"
+                )
+                self._console.print(f"  Rows remaining: {rows_after}")
+
+        # --- After Fix ---
+        self._console.print()
+        self._console.rule("[bold]After Fix[/bold]")
+        self._console.print(
+            f"  Rows: {after_report.total_rows:,} | "
+            f"Issues: {after_report.total_issues} "
+            f"({after_report.total_errors} errors, "
+            f"{after_report.total_warnings} warnings)"
+        )
+        self._render_results_table(after_report)
+        self._render_issues_detail(after_report)
+        self._render_summary(after_report)
 
 
 def _severity_style(severity: Severity) -> str:

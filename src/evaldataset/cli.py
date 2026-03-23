@@ -220,8 +220,8 @@ def main(
     # --- Run checker pipeline ---
     results = _run_checkers(dataset, text_field, config)
 
-    # --- Build report ---
-    report = Report(
+    # --- Build report (before fix) ---
+    before_report = Report(
         dataset_id=dataset_id,
         split=split,
         total_rows=len(dataset),
@@ -231,19 +231,31 @@ def main(
 
     # --- Fix pipeline (optional) ---
     fix_stats: dict[str, Any] | None = None
+    after_report: Report | None = None
     if fix or dry_run:
-        fix_stats = _run_fix_pipeline(
-            dataset, text_field, config, fix_output, dry_run, is_json
+        fix_stats, after_report = _run_fix_pipeline(
+            dataset,
+            text_field,
+            config,
+            fix_output,
+            dry_run,
+            is_json,
+            dataset_id=dataset_id,
+            split=split,
         )
 
     # --- Render report ---
     if is_json:
-        JsonReporter().render(report, fix_stats=fix_stats)
+        JsonReporter().render(
+            before_report, fix_stats=fix_stats, after_report=after_report
+        )
     else:
-        RichReporter().render(report, fix_stats=fix_stats)
+        RichReporter().render(
+            before_report, fix_stats=fix_stats, after_report=after_report
+        )
 
     # --- Determine exit code ---
-    exit_code = _exit_code_from_report(report)
+    exit_code = _exit_code_from_report(before_report)
     raise SystemExit(exit_code)
 
 
@@ -280,7 +292,10 @@ def _run_fix_pipeline(
     fix_output: str | None,
     dry_run: bool,
     is_json: bool,
-) -> dict[str, Any]:
+    *,
+    dataset_id: str = "",
+    split: str = "train",
+) -> tuple[dict[str, Any], Report]:
     """Run the full fix pipeline: TextCleaner -> checkers -> RowFilter.
 
     Pipeline steps:
@@ -288,9 +303,16 @@ def _run_fix_pipeline(
        chars, whitespace).
     2. Re-run checkers on the cleaned dataset to get fresh results.
     3. RowFilter: remove problem rows based on checker results.
+    4. Re-run checkers on the filtered dataset to produce ``after_report``.
 
     In ``--dry-run`` mode the pipeline reports what would change but does
     not write the output.
+
+    Returns
+    -------
+    tuple[dict[str, Any], Report]
+        ``(fix_stats, after_report)`` where *after_report* is the quality
+        check report for the post-fix dataset.
     """
     # Step 1: TextCleaner (text transformations)
     cleaner = TextCleaner()
@@ -311,6 +333,16 @@ def _run_fix_pipeline(
         skip_checkers=config.skip_checkers,
     )
 
+    # Step 4: Run checkers on filtered dataset to produce after_report
+    after_results = _run_checkers(filtered_dataset, text_field, config)
+    after_report = Report(
+        dataset_id=dataset_id,
+        split=split,
+        total_rows=len(filtered_dataset),
+        text_field=text_field,
+        results=after_results,
+    )
+
     # Merge clean_stats and filter_stats into a combined stats dict
     stats: dict[str, Any] = {**clean_stats, "filter_stats": filter_stats}
 
@@ -325,7 +357,7 @@ def _run_fix_pipeline(
                 f"would be modified, {filter_stats['total_rows_removed']} rows "
                 f"would be removed."
             )
-        return stats
+        return stats, after_report
 
     # Actually write the fixed dataset
     if fix_output:
@@ -344,7 +376,7 @@ def _run_fix_pipeline(
                 f"\n[bold green]Fixed dataset saved to:[/bold green] {fix_output}"
             )
 
-    return stats
+    return stats, after_report
 
 
 def _exit_code_from_report(report: Report) -> int:
