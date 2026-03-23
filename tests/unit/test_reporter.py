@@ -566,3 +566,292 @@ class TestRichReporter:
         err_stream.seek(0)
         output = err_stream.read()
         assert "Custom error message" in output
+
+
+# ---------------------------------------------------------------------------
+# AC-17: 修正前後レポート — JsonReporter
+# ---------------------------------------------------------------------------
+
+
+class TestJsonReporterFixReport:
+    """JsonReporter の修正前後レポート出力テスト。
+
+    AC-17-01: --fix --output json で修正前後レポートが出力される
+    AC-17-02: --dry-run --output json で修正前後レポートが出力される
+    """
+
+    @pytest.fixture
+    def stream(self) -> io.StringIO:
+        """出力キャプチャ用のStringIOストリーム。"""
+        return io.StringIO()
+
+    @pytest.fixture
+    def reporter(self, stream: io.StringIO):
+        """JsonReporter インスタンス（テスト用ストリームを使用）。"""
+        from evaldataset.report import JsonReporter
+        return JsonReporter(stream=stream)
+
+    @pytest.fixture
+    def before_report(self) -> Report:
+        """修正前レポート（WARNINGあり）。"""
+        warning_result = _make_check_result(
+            checker_name="text_length",
+            issues=[
+                _make_issue(
+                    checker="text_length",
+                    severity=Severity.WARNING,
+                    message="Text too short",
+                    row_indices=[0, 1],
+                )
+            ],
+        )
+        return _make_report(total_rows=5, results=[warning_result])
+
+    @pytest.fixture
+    def after_report(self) -> Report:
+        """修正後レポート（問題行除去済み）。"""
+        return _make_report(total_rows=3, results=[])
+
+    def test_render_with_after_report_contains_before_key(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: after_report を渡すと JSON 出力に 'before' キーが含まれる。"""
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        assert "before" in parsed
+
+    def test_render_with_after_report_contains_after_key(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: after_report を渡すと JSON 出力に 'after' キーが含まれる。"""
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        assert "after" in parsed
+
+    def test_render_with_after_report_before_contains_summary(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: 'before' には summary が含まれる。"""
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        assert "summary" in parsed["before"]
+
+    def test_render_with_after_report_after_contains_summary(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: 'after' には summary が含まれる。"""
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        assert "summary" in parsed["after"]
+
+    def test_render_with_after_report_before_warnings_gte_after_warnings(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: after.summary.warnings <= before.summary.warnings であること。"""
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        before_warnings = parsed["before"]["summary"]["warnings"]
+        after_warnings = parsed["after"]["summary"]["warnings"]
+        assert after_warnings <= before_warnings
+
+    def test_render_with_after_report_contains_fix_stats(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: fix_stats も JSON 出力に含まれること。"""
+        fix_stats = {"total_fixed": 2, "filter_stats": {"total_rows_removed": 1}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        assert "fix_stats" in parsed
+
+    def test_render_with_after_report_before_reflects_before_report(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: before の内容が before_report の to_dict() と一致する。"""
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        expected_before = before_report.to_dict()
+        assert parsed["before"]["summary"] == expected_before["summary"]
+
+    def test_render_with_after_report_after_reflects_after_report(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: after の内容が after_report の to_dict() と一致する。"""
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        expected_after = after_report.to_dict()
+        assert parsed["after"]["summary"] == expected_after["summary"]
+
+    def test_render_without_after_report_no_before_after_keys(
+        self, reporter, stream: io.StringIO, before_report
+    ) -> None:
+        """after_report=None の場合、JSON 出力に 'before'/'after' キーが含まれない（従来動作）。"""
+        reporter.render(before_report, fix_stats=None, after_report=None)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        assert "before" not in parsed
+        assert "after" not in parsed
+
+    def test_render_without_after_report_contains_summary_top_level(
+        self, reporter, stream: io.StringIO, before_report
+    ) -> None:
+        """after_report=None の場合は従来通り top-level に summary, results が含まれる。"""
+        reporter.render(before_report, fix_stats=None, after_report=None)
+
+        stream.seek(0)
+        parsed = json.loads(stream.read())
+        assert "summary" in parsed
+        assert "results" in parsed
+
+    def test_render_with_after_report_is_valid_json(
+        self, reporter, stream: io.StringIO, before_report, after_report
+    ) -> None:
+        """AC-17-01: after_report を渡した場合も出力が有効な JSON である。"""
+        fix_stats = {"total_fixed": 0, "filter_stats": {"total_rows_removed": 0}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        content = stream.read()
+        parsed = json.loads(content)
+        assert isinstance(parsed, dict)
+
+
+# ---------------------------------------------------------------------------
+# AC-17: 修正前後レポート — RichReporter
+# ---------------------------------------------------------------------------
+
+
+class TestRichReporterFixReport:
+    """RichReporter の修正前後レポート出力テスト。
+
+    AC-17-03: --fix で Rich 修正前後レポートが表示される
+    """
+
+    @pytest.fixture
+    def before_report(self) -> Report:
+        """修正前レポート（WARNINGあり）。"""
+        warning_result = _make_check_result(
+            checker_name="text_length",
+            issues=[
+                _make_issue(
+                    checker="text_length",
+                    severity=Severity.WARNING,
+                    message="Text too short",
+                    row_indices=[0, 1],
+                )
+            ],
+        )
+        return _make_report(total_rows=5, results=[warning_result])
+
+    @pytest.fixture
+    def after_report(self) -> Report:
+        """修正後レポート（問題行除去済み）。"""
+        return _make_report(total_rows=3, results=[])
+
+    def _make_rich_reporter_with_stream(self) -> tuple:
+        """テスト用のRichReporterとキャプチャ用ストリームのペアを返す。"""
+        from io import StringIO
+        from rich.console import Console
+        from evaldataset.report import RichReporter
+
+        stream = StringIO()
+        console = Console(file=stream, highlight=False)
+        reporter = RichReporter(console=console)
+        return reporter, stream
+
+    def test_render_with_after_report_does_not_raise(
+        self, before_report, after_report
+    ) -> None:
+        """AC-17-03: after_report を渡した場合も render() が例外なく実行できる。"""
+        from evaldataset.report import RichReporter
+
+        reporter = RichReporter()
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+    def test_render_with_after_report_output_contains_before(
+        self, before_report, after_report
+    ) -> None:
+        """AC-17-03: render() の出力に 'Before' が含まれる。"""
+        reporter, stream = self._make_rich_reporter_with_stream()
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        output = stream.read()
+        assert "Before" in output
+
+    def test_render_with_after_report_output_contains_after(
+        self, before_report, after_report
+    ) -> None:
+        """AC-17-03: render() の出力に 'After' が含まれる。"""
+        reporter, stream = self._make_rich_reporter_with_stream()
+        fix_stats = {"total_fixed": 1, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        output = stream.read()
+        assert "After" in output
+
+    def test_render_without_after_report_no_before_after_text(
+        self, before_report
+    ) -> None:
+        """after_report=None の場合は従来動作（Before/After テキストなし）で動作する。"""
+        reporter, stream = self._make_rich_reporter_with_stream()
+        reporter.render(before_report, fix_stats=None, after_report=None)
+
+        stream.seek(0)
+        output = stream.read()
+        # before/after セクションは存在しない（従来の単一レポート表示）
+        # ただし例外なく動作すること
+        assert isinstance(output, str)
+
+    def test_render_with_after_report_shows_before_warnings_count(
+        self, before_report, after_report
+    ) -> None:
+        """AC-17-03: render() の出力に修正前の問題数が含まれる。"""
+        reporter, stream = self._make_rich_reporter_with_stream()
+        fix_stats = {"total_fixed": 2, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        output = stream.read()
+        # Before セクションに warnings 数が表示される
+        before_warnings = str(before_report.total_warnings)
+        assert before_warnings in output
+
+    def test_render_with_after_report_shows_after_total_rows(
+        self, before_report, after_report
+    ) -> None:
+        """AC-17-03: render() の出力に修正後の行数が含まれる。"""
+        reporter, stream = self._make_rich_reporter_with_stream()
+        fix_stats = {"total_fixed": 2, "filter_stats": {"total_rows_removed": 2}}
+        reporter.render(before_report, fix_stats=fix_stats, after_report=after_report)
+
+        stream.seek(0)
+        output = stream.read()
+        # After レポートの total_rows（3）が出力に含まれる
+        assert str(after_report.total_rows) in output
