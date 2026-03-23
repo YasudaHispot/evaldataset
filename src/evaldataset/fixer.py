@@ -194,7 +194,7 @@ class RowFilter:
     """
 
     # Checker names whose Issue.row_indices drive row removal.
-    FILTER_CHECKERS = ["exact_duplicate", "near_duplicate", "text_length", "pii"]
+    FILTER_CHECKERS = ["exact_duplicate", "near_duplicate", "text_length", "pii", "boilerplate"]
 
     def filter_dataset(
         self,
